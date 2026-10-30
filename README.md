@@ -4,7 +4,7 @@ Screen land parcels anywhere in the United States using free public data. Enter 
 
 It is a plain website: HTML, CSS and JavaScript with no build step and no server. Your parcels and criteria are saved in your own browser (localStorage). Nothing is uploaded to an account.
 
-**Live demo:** https://YOUR-USERNAME.github.io/homestead-screener/
+**Live demo:** https://jnicholas1692.github.io/Vibed_HomeStead_Screener/
 
 ## Features
 
