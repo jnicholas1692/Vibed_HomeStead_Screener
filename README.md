@@ -103,6 +103,7 @@ npm test
 
 ## Version history
 
+- **v1.9.1** Drag the report sections into order in Settings (Up and Down still work)
 - **v1.9.0** Down payment in dollars; asking price next to the name in the list; 30-year conventional and FHA payments beside your land loan; a USDA loan area Yes or No from USDA's eligibility map
 - **v1.8.0** Edit a parcel's name, address, location, acres and price after adding it; choose the order of the report sections in Settings (the Criteria button is now Settings)
 - **v1.7.0** Address suggestions as you type (US, from OpenStreetMap via photon.komoot.io); the parcel name defaults to the address

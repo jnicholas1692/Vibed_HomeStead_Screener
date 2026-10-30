@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v1.9.0.
+> Last updated for v1.9.1.
 
 ## 1. Problem
 
@@ -73,6 +73,7 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R36 | Asking price in the list | The parcel list shows the asking price right after the parcel name | `feature/loans-usda` |
 | R37 | 30-year FHA and conventional loans | The cost section compares your land loan with a conventional and an FHA 30-year loan at the same price: down payment (raised to the loan's minimum of 3% or 3.5% and flagged), amount borrowed, rate, principal and interest, mortgage insurance (PMI under 20% down; FHA 1.75% upfront added to the loan plus a yearly premium for 11 years at 10% down or more, otherwise for the whole loan), tax and insurance, and monthly total; it says bare land cannot be financed this way and flags an FHA loan above the national limit floor | `feature/loans-usda` |
 | R38 | USDA loan area | A Yes or No in the list, the report and the compare table: Yes when the point is outside every ineligible area on USDA Rural Development's single family housing eligibility map; the report says income limits and a home purchase still apply | `feature/loans-usda` |
+| R39 | Drag to reorder report sections | In Settings each section row has a drag handle; dragging a row moves it live, scrolls the window near its edges, and the Up and Down buttons still work for the keyboard | `feature/drag-order` |
 
 ## 5. Scoring rules
 

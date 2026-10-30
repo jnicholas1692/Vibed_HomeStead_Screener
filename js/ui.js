@@ -863,7 +863,8 @@ let orderDraft = [];   // the report order being edited in the settings window; 
 
 function renderOrderList(focus) {
   const label = Object.fromEntries(REPORT_SECTIONS);
-  $("c-order-list").innerHTML = orderDraft.map((key, i) => `<li>
+  $("c-order-list").innerHTML = orderDraft.map((key, i) => `<li data-key="${key}">
+      <span class="order-grip" title="Drag to reorder" aria-hidden="true">&#8942;&#8942;</span>
       <span class="order-name">${esc(label[key])}</span>
       <button class="btn small" type="button" data-move="up" data-key="${key}" aria-label="Move ${esc(label[key])} up"${i === 0 ? " disabled" : ""}>Up</button>
       <button class="btn small" type="button" data-move="down" data-key="${key}" aria-label="Move ${esc(label[key])} down"${i === orderDraft.length - 1 ? " disabled" : ""}>Down</button>
@@ -875,6 +876,45 @@ function renderOrderList(focus) {
     if (wanted) wanted.focus();
   }
 }
+
+/* ---- dragging a row to a new place (the Up and Down buttons still work, and are the keyboard way) ---- */
+let orderDrag = null;   // { row, pointerId } while a row is being dragged
+
+function finishOrderDrag() {
+  if (!orderDrag) return;
+  const list = $("c-order-list");
+  orderDrag.row.classList.remove("dragging");
+  orderDrag = null;
+  orderDraft = [...list.children].map((row) => row.dataset.key);   // the rows were moved on screen; read the new order from them
+  renderOrderList();
+}
+
+// The list is built each time Settings opens, so the listener sits on the window that always exists.
+$("criteria-fields").addEventListener("pointerdown", (event) => {
+  const grip = event.target.closest(".order-grip");
+  if (!grip || event.button > 0) return;
+  event.preventDefault();
+  grip.setPointerCapture(event.pointerId);   // keeps the moves coming even when the pointer leaves the handle
+  orderDrag = { row: grip.closest("li"), pointerId: event.pointerId };
+  orderDrag.row.classList.add("dragging");
+});
+
+$("criteria-fields").addEventListener("pointermove", (event) => {
+  if (!orderDrag || event.pointerId !== orderDrag.pointerId) return;
+  const list = $("c-order-list");
+  // The dragged row goes just above the first other row whose middle is below the pointer, or to the end.
+  const others = [...list.children].filter((row) => row !== orderDrag.row);
+  const next = others.find((row) => { const box = row.getBoundingClientRect(); return event.clientY < box.top + box.height / 2; });
+  if (next) { if (orderDrag.row.nextElementSibling !== next) list.insertBefore(orderDrag.row, next); }
+  else if (list.lastElementChild !== orderDrag.row) list.appendChild(orderDrag.row);
+  // Near the top or bottom edge of the window, scroll so a row can be dragged further than what is visible.
+  const dialog = $("dlg-criteria"), edge = dialog.getBoundingClientRect();
+  if (event.clientY < edge.top + 40) dialog.scrollTop -= 12;
+  else if (event.clientY > edge.bottom - 40) dialog.scrollTop += 12;
+});
+
+$("criteria-fields").addEventListener("pointerup", finishOrderDrag);
+$("criteria-fields").addEventListener("pointercancel", finishOrderDrag);
 
 function moveSection(key, dir) {
   const i = orderDraft.indexOf(key);
@@ -907,7 +947,7 @@ function openCriteria() {
      </div>
      <div class="wide stack" id="c-order-block">
        <strong>Order of the report sections</strong>
-       <p class="hint">The score and factor table always come first, and the data sources and your notes always come last. Use Up and Down to arrange everything between them. The change applies to the report on screen and to the printout.</p>
+       <p class="hint">The score and factor table always come first, and the data sources and your notes always come last. Drag a row by the dots on its left, or use Up and Down, to arrange everything between them. The change applies to the report on screen and to the printout.</p>
        <ol class="order-list" id="c-order-list"></ol>
        <div><button class="btn small" type="button" id="c-order-reset">Reset to the default order</button></div>
      </div>`;

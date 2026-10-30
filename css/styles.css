@@ -219,3 +219,8 @@
 .loan-table td, .loan-table th { padding: 7px 10px; }
 .loan-table tr.total td { border-top: 2px solid var(--line); }
 .loan-table .sub { font-size: 0.78rem; font-weight: 400; }
+
+/* Dragging a report section row in Settings. */
+.order-grip { cursor: grab; touch-action: none; user-select: none; padding: 4px 6px; color: var(--muted); font-size: 1.1rem; line-height: 1; letter-spacing: -2px; }
+.order-list li.dragging { border-color: var(--accent); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22); }
+.order-list li.dragging .order-grip { cursor: grabbing; }
