@@ -956,3 +956,37 @@ test("lookupGroundwater: asks for a box around the point and 72019 only", async 
   assert.ok(url.includes("/nwis/gwlevels/?") && url.includes("format=json") && url.includes("parameterCd=72019") && url.includes("siteType=GW"));
   assert.ok(url.includes("bBox=-98.65000,30.05000,-98.15000,30.55000"), url);
 });
+
+// ---- Overpass requests wait in line ----
+test("overpassQuery sends one request at a time, even when two lookups ask together", async () => {
+  let inFlight = 0, mostAtOnce = 0;
+  const fetchFn = async () => {
+    inFlight += 1; mostAtOnce = Math.max(mostAtOnce, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 10));   // a slow server
+    inFlight -= 1;
+    return { ok: true, status: 200, text: async () => JSON.stringify({ elements: [{ id: 1 }] }) };
+  };
+  const app = loadScripts(["config.js", "sources.js"], { fetch: fetchFn });
+  const query = app.get("overpassQuery");
+  const [a, b, c] = await Promise.all([query("one"), query("two"), query("three")]);
+  assert.equal(mostAtOnce, 1);
+  assert.deepEqual([a.length, b.length, c.length], [1, 1, 1]);
+});
+
+test("overpassQuery names each server that failed, and a failure does not block the next request", async () => {
+  let calls = 0;
+  const fetchFn = async () => {
+    calls += 1;
+    if (calls <= 3) return { ok: false, status: 504, text: async () => "timeout" };   // every server fails for the first request
+    return { ok: true, status: 200, text: async () => JSON.stringify({ elements: [{ id: 2 }] }) };
+  };
+  const app = loadScripts(["config.js", "sources.js"], { fetch: fetchFn });
+  const query = app.get("overpassQuery");
+  const first = query("one").catch((error) => error);
+  const second = query("two");
+  const error = await first;
+  assert.match(error.message, /busy or slow/);
+  assert.match(error.message, /overpass-api\.de: HTTP 504/);
+  assert.match(error.message, /overpass\.kumi\.systems: HTTP 504/);
+  assert.equal((await second).length, 1);
+});

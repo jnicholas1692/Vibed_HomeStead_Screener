@@ -608,7 +608,8 @@ const PLACE_GROUPS = [
 const PLACE_SEARCH_RADII_M = [12000, 25000, 80000, 120000];   // small first, so towns and cities do not return huge lists
 const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",   // a backup server, used if the first fails
+  "https://overpass.kumi.systems/api/interpreter",   // backup servers, used in order if the one before fails
+  "https://overpass.private.coffee/api/interpreter",
 ];
 
 function buildPlacesQuery(lat, lon, radiusM, kinds) {
@@ -620,17 +621,27 @@ function buildPlacesQuery(lat, lon, radiusM, kinds) {
   return `[out:json][timeout:25];(${statements.join("")});out center tags;`;
 }
 
-async function overpassQuery(query) {
-  let lastError;
+// The free Overpass servers allow only a couple of requests at a time and answer extra ones with "busy" or with nothing
+// at all. Roads and nearby places both use Overpass, so their requests wait in this line and go one at a time.
+let overpassLine = Promise.resolve();
+function overpassQuery(query) {
+  const turn = overpassLine.then(() => overpassRequest(query));
+  overpassLine = turn.catch(() => {});   // a failed request must not block the ones waiting behind it
+  return turn;
+}
+
+// One request, trying each server in turn. If all of them fail, the message says why each one did.
+async function overpassRequest(query) {
+  const failures = [];
   for (const endpoint of OVERPASS_ENDPOINTS) {
     try {
       const data = await getJSON(endpoint, { method: "POST", body: new URLSearchParams({ data: query }) }, 40000);
       return data.elements || [];
     } catch (error) {
-      lastError = error;   // try the next server
+      failures.push(`${endpoint.split("/")[2]}: ${error.message}`);   // the host name, then why it failed
     }
   }
-  throw lastError;
+  throw new Error(`The free map servers are busy or slow (${failures.join("; ")})`);
 }
 
 // The closest returned place of one kind, or null.

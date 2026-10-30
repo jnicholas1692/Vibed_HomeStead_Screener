@@ -223,7 +223,7 @@ function placesHtml(places) {
     const kindRows = group.kinds.map((key) => {
       const kind = PLACE_KINDS.find((k) => k.key === key);
       const place = places[key];
-      if (!(key in places)) return `<tr><td>${esc(kind.label)}</td><td colspan="3">Not looked up yet. Click Refresh data.</td></tr>`;   // saved before this kind existed
+      if (!(key in places)) return `<tr><td>${esc(kind.label)}</td><td colspan="3">${notYetText()}</td></tr>`;   // saved before this kind existed
       if (!place) return `<tr><td>${esc(kind.label)}</td><td colspan="3">None found within about 75 miles</td></tr>`;
       return `<tr><td>${esc(kind.label)}</td><td>${esc(place.name)}</td>
         <td class="num">${place.miles} mi</td>
@@ -236,7 +236,7 @@ function placesHtml(places) {
 }
 
 function publicLandHtml(pl) {
-  if (pl === undefined) return `<p class="hint">Not looked up yet. Click Refresh data.</p>`;
+  if (pl === undefined) return `<p class="hint">${notYetText()}</p>`;
   if (pl === null) return `<p class="hint">No protected-land data for this spot.</p>`;
   const headline = pl.withinMiles == null ? "No public or protected land mapped within 25 miles."
     : pl.withinMiles === 0 ? "This point is on protected land. Check that the parcel really is private property."
@@ -248,7 +248,7 @@ function publicLandHtml(pl) {
 }
 
 function wetlandsHtml(w) {
-  if (w === undefined) return `<p class="hint">Not looked up yet. Click Refresh data.</p>`;
+  if (w === undefined) return `<p class="hint">${notYetText()}</p>`;
   if (w === null) return `<p class="hint">No wetlands data for this spot.</p>`;
   const nearby = w.nearbyCount > 0 ? `${w.nearbyMore ? "100 or more" : w.nearbyCount} mapped (${esc(w.nearbyTypes.join(", ") || "type not listed")})` : "none mapped";
   return `${w.onWetland ? `<p class="notice bad"><strong>This point is inside a mapped wetland</strong> (${esc(w.onTypes.join(", ") || "type not listed")}). Building, filling or draining a wetland can need federal and state permits.</p>` : ""}
@@ -260,7 +260,7 @@ function wetlandsHtml(w) {
 }
 
 function groundwaterHtml(gw) {
-  if (gw === undefined) return `<p class="hint">Not looked up yet. Click Refresh data.</p>`;
+  if (gw === undefined) return `<p class="hint">${notYetText()}</p>`;
   if (gw === null) return `<p class="hint">No groundwater data for this spot.</p>`;
   const body = gw.wells.length
     ? `<div class="table-scroll"><table><thead><tr><th>Monitoring well</th><th class="num">Distance</th><th class="num">Depth to water</th><th>Measured</th></tr></thead><tbody>${gw.wells.map((w) =>
@@ -271,7 +271,7 @@ function groundwaterHtml(gw) {
 }
 
 function roadsHtml(roads) {
-  if (roads === undefined) return `<p class="hint">Not looked up yet. Click Refresh data.</p>`;
+  if (roads === undefined) return `<p class="hint">${notYetText()}</p>`;
   if (roads === null) return `<p class="hint">No road data for this spot.</p>`;
   const describe = (road) => (road ? `${esc(road.name)} <span class="sub">(${esc(road.type.replace(/_/g, " "))}${road.surface === "unknown" ? "" : `, ${esc(road.surface)}`}${road.access ? `, access: ${esc(road.access)}` : ""})</span>` : "");
   const far = !roads.nearest || roads.nearest.distanceFt > 1500;
@@ -284,7 +284,7 @@ function roadsHtml(roads) {
 }
 
 function climateHtml(climate, solar) {
-  if (climate === undefined) return `<p class="hint">Not looked up yet. Click Refresh data.</p>`;   // saved before this feature existed
+  if (climate === undefined) return `<p class="hint">${notYetText()}</p>`;   // saved before this feature existed
   if (climate === null) return `<p class="hint">No climate data for this spot.</p>`;
   const freeze = climate.lastSpringFreeze
     ? kv("Last spring freeze (average)", esc(climate.lastSpringFreeze)) + kv("First fall freeze (average)", esc(climate.firstFallFreeze || "none"))
@@ -304,7 +304,7 @@ function climateHtml(climate, solar) {
 }
 
 function soilDetailsHtml(sd) {
-  if (sd === undefined) return `<p class="hint">Not looked up yet. Click Refresh data.</p>`;   // saved before this feature existed
+  if (sd === undefined) return `<p class="hint">${notYetText()}</p>`;   // saved before this feature existed
   if (sd === null) return `<p class="hint">The USDA has no soil survey data for this spot.</p>`;
   const percent = (v) => (v == null ? "?" : `${v}%`);
   const rating = (v) => esc(v || "?");
@@ -327,7 +327,7 @@ function soilDetailsHtml(sd) {
 }
 
 function hazardsHtml(hazards) {
-  if (hazards === undefined) return `<p class="hint">Not looked up yet. Click Refresh data.</p>`;   // saved before this feature existed
+  if (hazards === undefined) return `<p class="hint">${notYetText()}</p>`;   // saved before this feature existed
   if (hazards === null) return `<p class="hint">FEMA has no risk rating for this spot.</p>`;
   const rows = hazards.hazards.map((h) =>
     `<tr><td>${esc(h.name)}</td><td class="risk-${h.level}">${esc(h.rating)}</td></tr>`).join("");
@@ -368,6 +368,8 @@ function openDetail(id) {
   if (!p) return;
   const score = scoreParcel(p, settings);
   const site = p.site || {};
+  detailId = id;
+  const busy = lookingId === p.id;
   const factorRows = Object.entries(score.parts).map(([name, v]) => `<tr>
       <td>${helpLabel(FACTOR_LABELS[name])}</td>
       <td class="num">${v == null ? "no data" : Math.round(v)}</td>
@@ -380,21 +382,29 @@ function openDetail(id) {
       : `${site.nearestAirport}, ${site.airportMiles} mi straight line (about ${Math.round(driveMinutes(site.airportMiles, settings))} min drive, estimated)`;
   }
   $("detail").innerHTML = `
-    <div class="dlg-head">
-      <div><h2 id="detail-title">${esc(p.name)}</h2>
-        <div class="sub">${esc(p.address || "")}${p.address ? " &middot; " : ""}${esc(countyLabel(p))} &middot; ${esc(p.acres ?? "?")} acres &middot; ${money(p.askingPrice)}</div></div>
-      <div class="head-actions no-print">
+    <div class="dlg-bar no-print">
+      <div class="bar-group">
+        <button class="btn small" type="button" data-refresh="${esc(p.id)}"${busy ? " disabled" : ""}>${busy ? "Looking up..." : "Refresh data"}</button>
         <button class="btn small" type="button" data-print>Print</button>
         <button class="btn small" type="button" data-copy-summary="${esc(p.id)}">Copy summary</button>
+      </div>
+      <div class="bar-group">
+        <button class="btn small primary" type="button" data-save-notes="${esc(p.id)}">Save notes</button>
+        <button class="btn small danger" type="button" data-delete="${esc(p.id)}">Delete</button>
         <button class="btn small" type="button" data-close>Close</button>
       </div>
     </div>
+    <div class="dlg-head">
+      <div><h2 id="detail-title">${esc(p.name)}</h2>
+        <div class="sub">${esc(p.address || "")}${p.address ? " &middot; " : ""}${esc(countyLabel(p))} &middot; ${esc(p.acres ?? "?")} acres &middot; ${money(p.askingPrice)}</div></div>
+    </div>
     <div class="dlg-body">
       <div class="print-only sub">Printed ${esc(new Date().toLocaleDateString())} from Homestead Land Screener. Data sources are listed at the end of the report.</div>
+      ${busy ? `<p class="notice no-print" role="status">Looking up data: ${lookupDone} of ${SOURCE_STEPS.length + 2} lookups finished. The report fills in as each one arrives.</p>` : ""}
       ${score.dealbreakers.length ? `<p class="notice bad"><strong>Dealbreakers:</strong> ${esc(score.dealbreakers.join("; "))}</p>` : ""}
       <div class="score-line"><span class="big">${scoreText(score.total)}</span><span class="sub">score &middot; ${score.factorsScored} of ${score.factorsTotal} factors had data</span></div>
       <div class="table-scroll"><table><thead><tr><th>Factor</th><th class="num">Score</th><th></th><th class="num">Weight</th></tr></thead><tbody>${factorRows}</tbody></table></div>
-      ${p.errors && p.errors.length ? `<p class="notice">Some lookups failed, so the score is partial: ${esc(p.errors.join("; "))}. Use Refresh data to try again.</p>` : ""}
+      ${!busy && p.errors && p.errors.length ? `<p class="notice">Some lookups failed, so the score is partial: ${esc(p.errors.join("; "))}. Use Refresh data to try again.</p>` : ""}
       <h3>What the data says</h3>
       <div class="kv">
         ${kv("Coordinates", `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`)}
@@ -453,14 +463,41 @@ function openDetail(id) {
       <p class="hint no-print" id="summary-msg" role="status" hidden></p>
       <textarea id="summary-text" class="no-print" rows="8" readonly hidden></textarea>
     </div>
-    <div class="dlg-foot no-print">
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn" type="button" data-refresh="${esc(p.id)}">Refresh data</button>
-        <button class="btn danger" type="button" data-delete="${esc(p.id)}">Delete</button>
-      </div>
-      <button class="btn primary" type="button" data-save-notes="${esc(p.id)}">Save notes</button>
-    </div>`;
+`;
   if (!$("dlg-detail").open) $("dlg-detail").showModal();
+}
+
+/* ---- live report: the open report fills in while the lookups run ---- */
+let detailId = null;     // the parcel whose report is open, or null
+let lookingId = null;    // the parcel being looked up right now, or null
+let lookupDone = 0;      // how many of its lookups have finished
+let liveTimer = null;
+
+// What a section says when its data is missing: "Looking up now" during a lookup, otherwise how to fetch it.
+function notYetText() {
+  return lookingId && lookingId === detailId ? "Looking up now..." : "Not looked up yet. Click Refresh data.";
+}
+
+// Redraws the open report, keeping the scroll position and whatever was typed in the notes box.
+function liveRender() {
+  const dialog = $("dlg-detail");
+  if (!detailId || !dialog.open) return;
+  const notes = $("d-notes"), status = $("d-status");
+  const kept = notes ? { notes: notes.value, status: status.value, focused: document.activeElement === notes, caret: notes.selectionStart } : null;
+  const top = dialog.scrollTop;
+  hideHelpTip();
+  openDetail(detailId);
+  dialog.scrollTop = top;
+  if (kept) {
+    $("d-notes").value = kept.notes;
+    $("d-status").value = kept.status;
+    if (kept.focused) { $("d-notes").focus(); $("d-notes").setSelectionRange(kept.caret, kept.caret); }
+  }
+}
+// Several lookups can finish at the same moment, so wait a moment and redraw once.
+function scheduleLiveRender() {
+  if (liveTimer) return;
+  liveTimer = setTimeout(() => { liveTimer = null; liveRender(); }, 150);
 }
 
 /* ---- the lookup progress strip ---- */
@@ -476,6 +513,7 @@ function showProgress(label, state) {
   }
   chip.className = `chip ${state}`;
   chip.innerHTML = `<i></i>${esc(label)}${state === "failed" ? " failed" : ""}`;
+  if (state !== "running") { lookupDone += 1; scheduleLiveRender(); }
 }
 function clearProgress(delayMs) {
   clearTimeout(statusTimer);
@@ -484,10 +522,17 @@ function clearProgress(delayMs) {
 
 async function runLookups(parcel) {
   clearTimeout(statusTimer);
+  lookingId = parcel.id;
+  lookupDone = 0;
   $("status").innerHTML = `<strong style="font-size:.85rem">Looking up ${esc(parcel.name)}:</strong>`;
-  await lookupAll(parcel, showProgress);
+  try {
+    await lookupAll(parcel, showProgress);
+  } finally {
+    lookingId = null;
+  }
   saveParcels();
   renderAll();
+  liveRender();
   clearProgress(10000);
 }
 
@@ -529,8 +574,9 @@ async function addParcelFromForm(event) {
     renderAll();
     $("form-add").reset();
     $("dlg-add").close();
-    await runLookups(parcel);
+    const lookups = runLookups(parcel);   // starts now; the report below fills in as each lookup finishes
     openDetail(parcel.id);
+    await lookups;
   } finally {
     button.disabled = false;
     button.textContent = "Add and look up data";
@@ -569,10 +615,10 @@ function loadDemo() {
 
 async function refreshParcel(id) {
   const p = parcels.find((x) => x.id === id);
-  if (!p) return;
-  $("dlg-detail").close();
-  await runLookups(p);
-  openDetail(id);
+  if (!p || lookingId) return;
+  const lookups = runLookups(p);
+  if ($("dlg-detail").open) openDetail(id);   // redraw now so the buttons and notes show the lookup has started
+  await lookups;
 }
 
 let armedDeleteId = null;
@@ -780,6 +826,8 @@ async function copySummary(id) {
     $("summary-text").select();
   }
 }
+
+$("dlg-detail").addEventListener("close", () => { detailId = null; });
 
 document.addEventListener("click", (event) => {
   if (event.target.closest("[data-compare]")) return;   // a Pick box must not also open the parcel

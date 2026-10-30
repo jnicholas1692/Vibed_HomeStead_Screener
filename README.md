@@ -91,6 +91,7 @@ npm test
 
 ## Version history
 
+- **v1.5.0** The report opens at once and fills in as each lookup finishes; the Refresh, Print, Copy, Save, Delete and Close buttons stay pinned at the top; the free map servers are asked one request at a time
 - **v1.4.0** Hover help: plain-language explanations for the labels in the report, the compare table and the score table
 - **v1.3.0** Soil details, frost and climate, solar, road access, wetlands, public land, groundwater, county tax rate; the source of every piece of data shown on the report
 - **v1.2.0** Schools, fire, police and hospitals, FEMA hazard ratings, USDA hardiness zone

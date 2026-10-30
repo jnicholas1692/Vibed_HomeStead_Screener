@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v1.4.0.
+> Last updated for v1.5.0.
 
 ## 1. Problem
 
@@ -60,6 +60,8 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R23 | Groundwater | Up to three nearest USGS monitoring wells within about 17 miles that have a depth-to-water reading in the past 10 years; says a monitoring well is not your lot | `feature/groundwater` |
 | R24 | Show the source of every piece of data | Each section of the detail window shows its source with a link and the data date; the report ends with a list of sources with web addresses so it reads on paper; the copied summary ends with a Data sources block; the compare table lists its sources; one table (`DATA_SOURCES`) feeds all four, and a source that returned nothing is not listed | `feature/data-sources` |
 | R25 | Hover help on labels | Labels in the report, the compare table and the factor table show a dotted underline; hovering, tapping or tabbing to one shows what the data means and which agency supplies it; Escape closes the tip without closing the report; a test fails if a label is added without an explanation | `feature/hover-help` |
+| R26 | Live report and pinned buttons | The report opens as soon as a parcel is added or refreshed, shows each lookup's data as it finishes with a count of lookups done, keeps the scroll position and any typed notes, and the Refresh, Print, Copy summary, Save notes, Delete and Close buttons stay at the top while the report scrolls | `feature/live-report` |
+| R27 | Gentle with the free map servers | Roads and nearby places ask the Overpass servers one request at a time; when every server fails, the error names each server and why | `feature/live-report` |
 
 ## 5. Scoring rules
 
@@ -118,7 +120,7 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 
 ## 10. Testing
 
-- 91 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
+- 93 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
 - A browser test script with mocked services was used during development and is not part of the repository.
 - Live checks against real services are manual (see the tutorial).
 
