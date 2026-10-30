@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Homestead Land Screener</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div class="brand">
+      <h1>Homestead Land Screener</h1>
+      <p>Compare land parcels using free public flood, soil, terrain, rainfall, travel and internet data. Your parcels stay in this browser.</p>
+    </div>
+    <div class="toolbar">
+      <button class="btn primary" id="btn-add" type="button">Add parcel</button>
+      <button class="btn" id="btn-criteria" type="button">Criteria</button>
+      <button class="btn" id="btn-export" type="button">Export</button>
+      <button class="btn" id="btn-import" type="button">Import</button>
+      <input id="file-import" type="file" accept="application/json,.json" hidden>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <p class="notice bad" id="storage-warning" hidden>This browser is blocking local storage, so parcels will be lost when you close the page. Use Export to keep a copy.</p>
+  <p class="notice" id="map-warning" hidden>The map library did not load. Check your connection. The list still works.</p>
+  <div id="status" role="status" aria-live="polite" hidden></div>
+
+  <div class="layout">
+    <section class="panel" aria-label="Map">
+      <div class="pick-banner" id="pick-banner">Click the map to set the parcel's location. Press Esc to cancel.</div>
+      <div id="map"></div>
+    </section>
+    <section class="panel" aria-label="Ranked parcels">
+      <h2>Ranked parcels</h2>
+      <div class="list-controls">
+        <label>Sort by <select id="sort-by"></select></label>
+        <label>Status
+          <select id="filter-status">
+            <option value="all">All</option><option value="new">New</option>
+            <option value="interested">Interested</option><option value="visited">Visited</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="hide-dealbreakers"> Hide dealbreakers</label>
+        <button class="btn small" type="button" id="btn-compare" disabled>Compare</button>
+      </div>
+      <p class="hint list-hint" id="compare-hint">Tick two or three parcels in the "Pick" column to compare them side by side.</p>
+      <div id="list"></div>
+    </section>
+  </div>
+</main>
+
+<footer class="wrap">
+  A screening aid, not a survey. Confirm flood, soil, septic, water, access and internet with the county, the providers and licensed professionals before buying.
+  Data: US Census Geocoder, FEMA National Flood Hazard Layer, USGS Elevation Point Query Service, USDA Soil Data Access, Open-Meteo, FCC, and OpenStreetMap contributors (via the Overpass API and the OSRM demo server) for nearby places and road routes. Map: OpenStreetMap contributors.
+</footer>
+
+<!-- Add parcel -->
+<dialog id="dlg-add" aria-labelledby="add-title">
+  <form id="form-add" method="dialog">
+    <div class="dlg-head"><h2 id="add-title">Add a parcel</h2><button class="btn small" type="button" data-close>Close</button></div>
+    <div class="dlg-body">
+      <div class="fields">
+        <label class="wide">Name
+          <input id="f-name" required maxlength="80" placeholder="Example: 10 acres off County Road 12">
+        </label>
+        <label class="wide">Address (optional)
+          <input id="f-address" maxlength="160" placeholder="Used only if you leave latitude and longitude empty">
+        </label>
+        <label>Latitude <input id="f-lat" inputmode="decimal" placeholder="30.27500"></label>
+        <label>Longitude <input id="f-lon" inputmode="decimal" placeholder="-98.40000"></label>
+        <label>Acres <input id="f-acres" inputmode="decimal"></label>
+        <label>Asking price (USD) <input id="f-price" inputmode="decimal"></label>
+      </div>
+      <div><button class="btn" id="btn-pick" type="button">Pick location on the map</button></div>
+      <p class="hint">Rural land often has no street address. Pick the spot on the map, or copy coordinates from a map app (right-click a spot in Google Maps and click the numbers).</p>
+      <p class="err" id="add-error" role="alert" hidden></p>
+    </div>
+    <div class="dlg-foot"><button class="btn" type="button" id="btn-demo">Load 3 demo parcels</button><button class="btn primary" type="submit" id="btn-save">Add and look up data</button></div>
+  </form>
+</dialog>
+
+<!-- Parcel detail -->
+<dialog id="dlg-detail" aria-labelledby="detail-title"><div id="detail"></div></dialog>
+
+<!-- Compare -->
+<dialog id="dlg-compare" class="wide-dialog" aria-labelledby="compare-title">
+  <div class="dlg-head"><h2 id="compare-title">Compare parcels</h2><div class="head-actions no-print"><button class="btn small" type="button" data-print>Print</button><button class="btn small" type="button" data-close>Close</button></div></div>
+  <div class="dlg-body"><div id="compare"></div></div>
+</dialog>
+
+<!-- Criteria -->
+<dialog id="dlg-criteria" aria-labelledby="criteria-title">
+  <form id="form-criteria" method="dialog">
+    <div class="dlg-head"><h2 id="criteria-title">Your criteria</h2><button class="btn small" type="button" data-close>Close</button></div>
+    <div class="dlg-body">
+      <p class="hint">Weights say how much each factor matters. Factors with no data are skipped, not counted as zero. Scores update when you save.</p>
+      <div class="fields" id="criteria-fields"></div>
+      <p class="err" id="criteria-error" role="alert" hidden></p>
+    </div>
+    <div class="dlg-foot"><button class="btn" type="button" id="btn-reset-criteria">Reset to defaults</button><button class="btn primary" type="submit">Save criteria</button></div>
+  </form>
+</dialog>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="js/config.js"></script>
+<script src="js/scoring.js"></script>
+<script src="js/sources.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>
