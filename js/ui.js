@@ -136,6 +136,13 @@ function updateCompareButton() {
   $("btn-compare").disabled = n < 2;
 }
 
+// "Yes (AE)", "No" or "?" for the list.
+function floodShort(zone) {
+  const answer = floodAnswer(zone);
+  if (answer.inZone === null) return "?";
+  return answer.inZone ? `Yes (${zone})` : "No";
+}
+
 // "Yes", "No" or "?" for the USDA loan area. Shown as words, not just color.
 function usdaCell(usda) {
   if (usda === undefined) return `<span class="sub">${lookingId ? "..." : "?"}</span>`;
@@ -166,14 +173,14 @@ function renderList(items) {
       <td class="num">${money(p.askingPrice)}</td>
       <td><span class="score ${scoreClass(score.total)}">${scoreText(score.total)}</span><div class="sub">${score.factorsScored}/${score.factorsTotal} factors</div></td>
       <td>${usdaCell(site.usda)}</td>
-      <td>${esc(site.floodZone || "unknown")}</td>
+      <td>${esc(floodShort(site.floodZone))}</td>
       <td>${esc(net)}</td>
       <td class="num col-air">${esc(drive)}</td>
       <td class="col-del">${deleteButton(p.id)}</td>
     </tr>`;
   }).join("");
   $("list").innerHTML = `<div class="table-scroll"><table>
-    <thead><tr><th class="col-pick">Pick</th><th class="num col-n">#</th><th>Parcel</th><th class="num">Price</th><th>Score</th><th title="Is the spot in a USDA loan eligible area?">USDA</th><th>Flood</th><th>Internet</th><th class="num col-air">To airport</th><th class="col-del" aria-label="Delete"></th></tr></thead>
+    <thead><tr><th class="col-pick">Pick</th><th class="num col-n">#</th><th>Parcel</th><th class="num">Price</th><th>Score</th><th title="Is the spot in a USDA loan eligible area?">USDA</th><th title="Is the spot in a high-risk FEMA flood zone?">Flood zone</th><th>Internet</th><th class="num col-air">To airport</th><th class="col-del" aria-label="Delete"></th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 
@@ -272,10 +279,13 @@ function wetlandsHtml(w) {
 function groundwaterHtml(gw) {
   if (gw === undefined) return `<p class="hint">${notYetText()}</p>`;
   if (gw === null) return `<p class="hint">No groundwater data for this spot.</p>`;
+  const ageText = (w) => (w.yearsAgo >= 2 ? ` <span class="sub">(${w.yearsAgo} years ago)</span>` : "");
+  const allOld = gw.wells.length > 0 && gw.wells.every((w) => w.yearsAgo > 10);
   const body = gw.wells.length
-    ? `<div class="table-scroll"><table><thead><tr><th>Monitoring well</th><th class="num">Distance</th><th class="num">Depth to water</th><th>Measured</th></tr></thead><tbody>${gw.wells.map((w) =>
-      `<tr><td>${esc(w.name)}${w.siteNo ? ` <span class="sub">USGS ${esc(w.siteNo)}</span>` : ""}</td><td class="num">${w.distanceMiles} mi</td><td class="num">${w.depthFt} ft</td><td>${esc(w.measured)}</td></tr>`).join("")}</tbody></table></div>`
-    : `<p>No USGS monitoring well with a reading in the past 10 years within about ${gw.searchedMiles} miles.</p>`;
+    ? `<div class="table-scroll"><table><thead><tr><th>Monitoring well</th><th class="num">Distance</th><th class="num">Depth to water</th><th>Last measured</th></tr></thead><tbody>${gw.wells.map((w) =>
+      `<tr><td>${esc(w.name)}${w.siteNo ? ` <span class="sub">USGS ${esc(w.siteNo)}</span>` : ""}</td><td class="num">${w.distanceMiles} mi</td><td class="num">${w.depthFt} ft</td><td>${esc(w.measured)}${ageText(w)}</td></tr>`).join("")}</tbody></table></div>
+      ${allOld ? `<p class="notice">These wells were last measured more than 10 years ago, so the depths may have changed. Many USGS wells in rural areas are no longer measured.</p>` : ""}`
+    : `<p>No USGS monitoring well with a depth-to-water reading within about ${gw.searchedMiles} miles.</p>`;
   return `${body}
     <p class="hint">Depth is feet below ground to the water level in a monitoring well, which is not your lot. Water depth, rock type and well yield can differ a lot over a mile, and a deep or shallow reading nearby does not tell you what a new well will find. A monitoring well may tap a different layer (aquifer) than a household well would. In Texas, the Texas Water Development Board's Water Data for Texas site has driller reports for existing wells near you, and your groundwater conservation district sets the drilling rules. Ask a local well driller what depth and yield to expect.</p>`;
 }
@@ -409,7 +419,7 @@ function openDetail(id) {
       <td>${helpLabel(FACTOR_LABELS[name])}</td>
       <td class="num">${v == null ? "no data" : Math.round(v)}</td>
       <td>${v == null ? "" : `<div class="bar"><span style="width:${v}%"></span></div>`}</td>
-      <td class="num">${settings.weights[name]}</td></tr>`).join("");
+      <td class="num">${settings.points[name]}</td></tr>`).join("");
   let drive = "?";
   if (site.airportMiles != null) {
     drive = site.airportDriveMin != null
@@ -422,7 +432,7 @@ function openDetail(id) {
       <h3>What the data says</h3>
       <div class="kv">
         ${kv("Coordinates", `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`)}
-        ${kv("FEMA flood zone", esc(site.floodZone || "unknown (not mapped or lookup failed)"))}
+        ${kv("In a flood zone?", esc(floodAnswer(site.floodZone).text))}
         ${kv("Elevation", site.elevationFt != null ? `${site.elevationFt} ft` : "?")}
         ${kv("Slope (steepest of 4 directions)", site.slopePct != null ? `${site.slopePct}%` : "?")}
         ${kv("Soil", esc(site.soilName || "?"))}
@@ -500,7 +510,7 @@ function openDetail(id) {
       ${busy ? `<p class="notice no-print" role="status">Looking up data: ${lookupDone} of ${SOURCE_STEPS.length + 2} lookups finished. The report fills in as each one arrives.</p>` : ""}
       ${score.dealbreakers.length ? `<p class="notice bad"><strong>Dealbreakers:</strong> ${esc(score.dealbreakers.join("; "))}</p>` : ""}
       <div class="score-line"><span class="big">${scoreText(score.total)}</span><span class="sub">score &middot; ${score.factorsScored} of ${score.factorsTotal} factors had data</span></div>
-      <div class="table-scroll"><table><thead><tr><th>Factor</th><th class="num">Score</th><th></th><th class="num">Weight</th></tr></thead><tbody>${factorRows}</tbody></table></div>
+      <div class="table-scroll"><table><thead><tr><th>Factor</th><th class="num">Score</th><th></th><th class="num">Points</th></tr></thead><tbody>${factorRows}</tbody></table></div>
       ${!busy && p.errors && p.errors.length ? `<p class="notice">Some lookups failed, so the score is partial: ${esc(p.errors.join("; "))}. Use Refresh data to try again.</p>` : ""}
       ${orderedSections}
       <h3>Data sources</h3>
@@ -833,16 +843,18 @@ function alertNotice(message, bad = false) {
 }
 
 /* ---- criteria dialog ---- */
-const CRITERIA_FIELDS = [
-  ["Weight: flood", "weights.flood"], ["Weight: septic", "weights.septic"], ["Weight: slope", "weights.slope"],
-  ["Weight: rainfall", "weights.rain"], ["Weight: airport", "weights.airport"], ["Weight: price", "weights.price"],
-  ["Weight: hunting", "weights.hunting"], ["Weight: internet", "weights.internet"],
+// Number boxes for the Scoring tab: where each factor's range starts and ends.
+const SCORING_FIELDS = [
   ["Price: full marks at or below ($)", "priceTarget"], ["Price: zero at or above ($)", "priceMax"],
   ["Slope: full marks at or below (%)", "slopeIdeal"], ["Slope: zero at or above (%)", "slopeMax"],
   ["Rain: full marks at (in/year)", "rainFull"], ["Rain: zero at (in/year)", "rainZero"],
   ["Airport: full marks within (min)", "airportFullMin"], ["Airport: dealbreaker beyond (min)", "airportMaxMin"],
   ["Road detour factor", "detourFactor"], ["Average speed (mph)", "avgMph"],
   ["Internet: full marks at (Mbps)", "internetFullMbps"], ["Internet: zero at (Mbps)", "internetZeroMbps"],
+];
+
+// Number boxes for the Costs and loans tab.
+const COST_FIELDS = [
   ["Cost: down payment ($)", "costs.downPayment"], ["Cost: land loan interest rate (%)", "costs.ratePct"],
   ["Cost: loan length (years, 0 = cash)", "costs.years"], ["Cost: property tax (% of price per year)", "costs.taxPct"],
   ["Cost: insurance ($ per month)", "costs.insuranceMonthly"], ["Cost: standard septic ($)", "costs.septicStandard"],
@@ -924,37 +936,113 @@ function moveSection(key, dir) {
   renderOrderList({ key, dir });
 }
 
+// What each dealbreaker switch means, shown beside the switch.
+const DEALBREAKER_RULES = {
+  flood: "if the spot is in a high-risk FEMA flood zone",
+  septic: "if the soil is very limited for a septic system",
+  slope: "if the slope reaches the zero end of its range below",
+  rain: "if rainfall is at or below the zero end of its range below",
+  airport: "if the drive to the airport is longer than the dealbreaker minutes below",
+  price: "if the price is at or above the zero end of its range below",
+  hunting: "if the parcel is not in one of your hunting counties",
+  internet: "if there is no wired or fixed wireless service, or the speed is at or below the zero end below",
+};
+
+let pointsDraft = {};   // the skill tree being edited; saved with the Save button
+let dealDraft = {};     // the dealbreaker switches being edited
+
+function pointsLeft() { return POINT_BUDGET - Object.values(pointsDraft).reduce((a, b) => a + b, 0); }
+
+function renderTree() {
+  const left = pointsLeft();
+  $("c-points-left").textContent = left === 0 ? `All ${POINT_BUDGET} points spent` : `${left} of ${POINT_BUDGET} points left`;
+  $("c-points-left").classList.toggle("spent", left === 0);
+  $("c-tree").innerHTML = Object.keys(DEFAULT_SETTINGS.points).map((key) => {
+    const n = pointsDraft[key], name = FACTOR_LABELS[key];
+    const pips = Array.from({ length: POINT_BUDGET }, (_, i) => `<i class="${i < n ? "on" : ""}"></i>`).join("");
+    return `<li class="node${n > 0 ? " active" : ""}">
+      <div class="node-main">
+        <span class="node-name">${helpLabel(name)}</span>
+        <span class="pips" aria-hidden="true">${pips}</span>
+        <button class="btn small" type="button" data-point="${key}" data-delta="-1" aria-label="Take a point from ${esc(name)}"${n === 0 ? " disabled" : ""}>&minus;</button>
+        <output class="node-points" aria-label="${esc(name)} points">${n}</output>
+        <button class="btn small" type="button" data-point="${key}" data-delta="1" aria-label="Give a point to ${esc(name)}"${left === 0 ? " disabled" : ""}>+</button>
+      </div>
+      <label class="node-deal"><input type="checkbox" data-deal="${key}"${dealDraft[key] ? " checked" : ""}> Dealbreaker <span class="sub">${esc(DEALBREAKER_RULES[key])}</span></label>
+    </li>`;
+  }).join("");
+}
+
+function showSettingsTab(name) {
+  for (const tab of document.querySelectorAll("#form-criteria [data-tab]")) {
+    const on = tab.dataset.tab === name;
+    tab.setAttribute("aria-selected", on ? "true" : "false");
+    tab.tabIndex = on ? 0 : -1;
+  }
+  for (const panel of document.querySelectorAll("#criteria-fields [data-panel]")) panel.hidden = panel.dataset.panel !== name;
+}
+
+function numberBoxes(fields) {
+  return fields.map(([label, path]) =>
+    `<label>${esc(label)}<input data-path="${path}" inputmode="decimal" value="${esc(getPath(settings, path))}"></label>`).join("");
+}
+
 function openCriteria() {
-  $("criteria-fields").innerHTML = `<p class="hint wide">These are starting points, not rules. Rainfall, price and slope that count as good vary a lot across the US (for example, 15 inches of rain a year is dry in Georgia but normal in Nevada), so set them for the region you are searching.</p>`
-    + CRITERIA_FIELDS.map(([label, path]) =>
-    `<label>${esc(label)}<input data-path="${path}" inputmode="decimal" value="${esc(getPath(settings, path))}"></label>`).join("")
-    + `<label class="wide">Counties where you can hunt (comma-separated; add the state, like "Blanco TX", because many states share county names; leave empty to skip this factor)
-       <input id="c-hunting" value="${esc(settings.huntingCounties.join(", "))}" placeholder="Example: Blanco TX, Gillespie TX"></label>
-     <label class="wide">Census API key (optional and free; lets the app look up your county's typical property tax rate)
-       <input id="c-census-key" value="${esc(settings.censusKey)}" autocomplete="off" placeholder="Paste a key from api.census.gov/data/key_signup.html"></label>
-     <label class="check wide"><input type="checkbox" id="c-use-county-tax" ${settings.costs.useCountyTax !== false ? "checked" : ""}> Use the county's typical tax rate when it is known (otherwise use the rate above)</label>
-     <label class="wide">Which airports count?
-       <select id="c-airport-mode">
-         <option value="auto">The nearest major US airport (default)</option>
-         <option value="custom">Only the airports I list</option>
-       </select></label>
-     <div class="wide stack" id="c-custom-airports" ${settings.airportMode === "custom" ? "" : "hidden"}>
-       <label>Your airports (one per line: name, latitude, longitude). The nearest one is used.
-         <textarea id="c-airports" rows="4">${esc(formatAirports(settings.airports))}</textarea></label>
-       <label>Add a preset airport
-         <select id="c-airport-preset"><option value="">Choose one to add it to the list...</option>${
-           AIRPORT_PRESETS.map((a, i) => `<option value="${i}">${esc(a.name)}</option>`).join("")}</select></label>
-     </div>
-     <div class="wide stack" id="c-order-block">
-       <strong>Order of the report sections</strong>
-       <p class="hint">The score and factor table always come first, and the data sources and your notes always come last. Drag a row by the dots on its left, or use Up and Down, to arrange everything between them. The change applies to the report on screen and to the printout.</p>
-       <ol class="order-list" id="c-order-list"></ol>
-       <div><button class="btn small" type="button" id="c-order-reset">Reset to the default order</button></div>
-     </div>`;
+  pointsDraft = { ...settings.points };
+  dealDraft = { ...settings.dealbreakers };
+  $("criteria-fields").innerHTML = `
+    <div class="tab-panel" id="panel-scoring" role="tabpanel" aria-labelledby="tab-scoring" data-panel="scoring">
+      <div class="stack">
+        <div class="tree-head"><strong>Skill tree</strong><span class="points-left" id="c-points-left" role="status"></span></div>
+        <p class="hint">Spend ${POINT_BUDGET} points on what matters most to you. More points means the factor pulls the score harder. A factor with 0 points is not scored, and a factor with no data for a parcel is skipped, not counted as zero. Turn on Dealbreaker to rule a parcel out completely when that factor is at its worst.</p>
+        <ul class="tree" id="c-tree"></ul>
+        <div class="node flood-node">
+          <div class="node-main"><span class="node-name">${helpLabel("In a flood zone?")}</span><span class="sub">Not scored. The report shows a plain Yes or No with the zone.</span></div>
+          <label class="node-deal"><input type="checkbox" data-deal="flood"${dealDraft.flood ? " checked" : ""}> Dealbreaker <span class="sub">${esc(DEALBREAKER_RULES.flood)}</span></label>
+        </div>
+      </div>
+      <div class="fields">
+        <p class="hint wide">These ranges are starting points, not rules. Rainfall, price and slope that count as good vary a lot across the US (for example, 15 inches of rain a year is dry in Georgia but normal in Nevada), so set them for the region you are searching.</p>
+        ${numberBoxes(SCORING_FIELDS)}
+        <label class="wide">Counties where you can hunt (comma-separated; add the state, like "Blanco TX", because many states share county names; leave empty to skip this factor)
+          <input id="c-hunting" value="${esc(settings.huntingCounties.join(", "))}" placeholder="Example: Blanco TX, Gillespie TX"></label>
+        <label class="wide">Which airports count?
+          <select id="c-airport-mode">
+            <option value="auto">The nearest major US airport (default)</option>
+            <option value="custom">Only the airports I list</option>
+          </select></label>
+        <div class="wide stack" id="c-custom-airports" ${settings.airportMode === "custom" ? "" : "hidden"}>
+          <label>Your airports (one per line: name, latitude, longitude). The nearest one is used.
+            <textarea id="c-airports" rows="4">${esc(formatAirports(settings.airports))}</textarea></label>
+          <label>Add a preset airport
+            <select id="c-airport-preset"><option value="">Choose one to add it to the list...</option>${
+              AIRPORT_PRESETS.map((a, i) => `<option value="${i}">${esc(a.name)}</option>`).join("")}</select></label>
+        </div>
+      </div>
+    </div>
+    <div class="tab-panel" id="panel-costs" role="tabpanel" aria-labelledby="tab-costs" data-panel="costs" hidden>
+      <div class="fields">
+        <p class="hint wide">These are placeholders for the rough cost estimate and the loan comparison. Replace them with real quotes for the area you are searching.</p>
+        ${numberBoxes(COST_FIELDS)}
+        <label class="wide">Census API key (optional and free; lets the app look up your county's typical property tax rate)
+          <input id="c-census-key" value="${esc(settings.censusKey)}" autocomplete="off" placeholder="Paste a key from api.census.gov/data/key_signup.html"></label>
+        <label class="check wide"><input type="checkbox" id="c-use-county-tax" ${settings.costs.useCountyTax !== false ? "checked" : ""}> Use the county's typical tax rate when it is known (otherwise use the rate above)</label>
+      </div>
+    </div>
+    <div class="tab-panel" id="panel-layout" role="tabpanel" aria-labelledby="tab-layout" data-panel="layout" hidden>
+      <div class="stack" id="c-order-block">
+        <strong>Order of the report sections</strong>
+        <p class="hint">The score and factor table always come first, and the data sources and your notes always come last. Drag a row by the dots on its left, or use Up and Down, to arrange everything between them. The change applies to the report on screen and to the printout.</p>
+        <ol class="order-list" id="c-order-list"></ol>
+        <div><button class="btn small" type="button" id="c-order-reset">Reset to the default order</button></div>
+      </div>
+    </div>`;
+  renderTree();
   orderDraft = normalizeReportOrder(settings.reportOrder);
   renderOrderList();
   $("c-airport-mode").value = settings.airportMode;
   $("criteria-error").hidden = true;
+  showSettingsTab("scoring");
   $("dlg-criteria").showModal();
 }
 
@@ -976,19 +1064,30 @@ function recomputeAirports() {
 function saveCriteria(event) {
   event.preventDefault();
   const next = JSON.parse(JSON.stringify(settings));
+  // An error is shown at the top, which is always visible, and the tab that holds the problem opens.
+  const settingsError = (message, where) => {
+    $("criteria-error").textContent = message;
+    $("criteria-error").hidden = false;
+    const panel = where && where.closest("[data-panel]");
+    if (panel) showSettingsTab(panel.dataset.panel);
+  };
   for (const input of $("criteria-fields").querySelectorAll("input[data-path]")) {
     const value = parseNumber(input.value);
     if (value == null || Number.isNaN(value) || value < 0) {
-      $("criteria-error").textContent = "Every criteria field needs a number of zero or more.";
-      $("criteria-error").hidden = false;
+      settingsError("Every number field needs a number of zero or more.", input);
       return;
     }
     setPath(next, input.dataset.path, value);
   }
+  if (pointsLeft() === POINT_BUDGET) {
+    settingsError("Spend at least one point in the skill tree, or every parcel would have no score.", $("c-tree"));
+    return;
+  }
+  next.points = normalizePoints(pointsDraft);
+  next.dealbreakers = { ...dealDraft };
   if (next.priceMax === next.priceTarget || next.slopeMax === next.slopeIdeal || next.rainFull === next.rainZero
       || next.airportMaxMin === next.airportFullMin || next.internetFullMbps === next.internetZeroMbps) {
-    $("criteria-error").textContent = "The two ends of each range must be different numbers.";
-    $("criteria-error").hidden = false;
+    settingsError("The two ends of each range must be different numbers.", $("c-tree"));
     return;
   }
   next.huntingCounties = $("c-hunting").value.split(",").map((c) => c.trim().replace(/\s+county\b/i, "")).filter(Boolean);
@@ -998,8 +1097,7 @@ function saveCriteria(event) {
   next.airportMode = $("c-airport-mode").value;
   const airportResult = parseAirports($("c-airports").value);
   if (next.airportMode === "custom" && airportResult.error) {
-    $("criteria-error").textContent = airportResult.error;
-    $("criteria-error").hidden = false;
+    settingsError(airportResult.error, $("c-airports"));
     return;
   }
   next.airports = airportResult.airports || [];   // keep a typed list even while the national list is in use
@@ -1175,13 +1273,40 @@ $("btn-demo").addEventListener("click", loadDemo);
 $("form-add").addEventListener("submit", addParcelFromForm);
 $("btn-criteria").addEventListener("click", openCriteria);
 $("form-criteria").addEventListener("submit", saveCriteria);
+$("form-criteria").addEventListener("click", (event) => {
+  const tab = event.target.closest("[data-tab]");
+  if (tab) showSettingsTab(tab.dataset.tab);
+});
+// Arrow keys move between the tabs, as on any tab bar.
+$("form-criteria").addEventListener("keydown", (event) => {
+  const tab = event.target.closest("[data-tab]");
+  if (!tab || (event.key !== "ArrowRight" && event.key !== "ArrowLeft")) return;
+  const tabs = [...document.querySelectorAll("#form-criteria [data-tab]")];
+  const next = tabs[(tabs.indexOf(tab) + (event.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+  showSettingsTab(next.dataset.tab);
+  next.focus();
+});
 $("criteria-fields").addEventListener("click", (event) => {
+  const point = event.target.closest("[data-point]");
+  if (point) {
+    const key = point.dataset.point, delta = Number(point.dataset.delta);
+    if (delta > 0 && pointsLeft() === 0) return;
+    if (delta < 0 && pointsDraft[key] === 0) return;
+    pointsDraft[key] += delta;
+    renderTree();
+    // The buttons were redrawn, so put the keyboard focus back on the one that was used (or its partner if it is now off).
+    const again = $("c-tree").querySelector(`button[data-point="${key}"][data-delta="${delta}"]:not(:disabled)`)
+      || $("c-tree").querySelector(`button[data-point="${key}"]:not(:disabled)`);
+    if (again) again.focus();
+    return;
+  }
   const move = event.target.closest("[data-move]");
   if (move) { moveSection(move.dataset.key, move.dataset.move); return; }
   if (event.target.id === "c-order-reset") { orderDraft = normalizeReportOrder([]); renderOrderList(); }
 });
 // Choosing a preset airport adds its line to the text box.
 $("criteria-fields").addEventListener("change", (event) => {
+  if (event.target.dataset.deal) { dealDraft[event.target.dataset.deal] = event.target.checked; return; }
   if (event.target.id === "c-airport-mode") {
     $("c-custom-airports").hidden = event.target.value !== "custom";
     return;

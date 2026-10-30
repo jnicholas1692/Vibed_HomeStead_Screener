@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v1.9.1.
+> Last updated for v2.0.1.
 
 ## 1. Problem
 
@@ -37,8 +37,8 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | --- | --- | --- | --- |
 | R1 | Add a parcel by street address or map click | Address resolves through the Census geocoder; a bad address gives a clear message; the map click stores coordinates | v1.0.0 |
 | R2 | Look up flood, soil, slope, rain, county, internet | Each source fills in independently; one failure does not block the others; failed sources are labelled | v1.0.0 |
-| R3 | Score 0 to 100 from eight weighted factors | Weights are editable; missing factors are skipped, not scored as zero; the score says how many factors had data | v1.0.0 |
-| R4 | Dealbreakers | A high-risk flood zone, or airport drive time above the limit, is flagged and can be hidden from the list | v1.0.0 |
+| R3 | Score 0 to 100 from weighted factors | Missing factors are skipped, not scored as zero; the score says how many factors had data; since v2.0.0 the weights are a 10-point skill tree over seven factors (see R40) | v1.0.0 |
+| R4 | Dealbreakers | A parcel is flagged, and can be hidden from the list, when a factor with its dealbreaker switch on reaches its worst end; since v2.0.0 each criterion has its own switch (see R41) | v1.0.0 |
 | R5 | Choose airports | Default is the nearest major US airport from a built-in list of about 100; the user can instead supply their own list | `feature/airport-picker` (0cb02b4), then `feature/nationwide` (a4b677a) |
 | R6 | Nearest grocery, hardware, Costco, feed store, vet | Five results per parcel or "none found"; search radius widens in steps; busy server is retried on a mirror | `feature/nearby-places` (e2975a5) |
 | R7 | Road drive times | Routed minutes when OSRM answers; clearly marked estimates when it does not | `feature/road-drive-times` (9327fb8) |
@@ -74,12 +74,18 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R37 | 30-year FHA and conventional loans | The cost section compares your land loan with a conventional and an FHA 30-year loan at the same price: down payment (raised to the loan's minimum of 3% or 3.5% and flagged), amount borrowed, rate, principal and interest, mortgage insurance (PMI under 20% down; FHA 1.75% upfront added to the loan plus a yearly premium for 11 years at 10% down or more, otherwise for the whole loan), tax and insurance, and monthly total; it says bare land cannot be financed this way and flags an FHA loan above the national limit floor | `feature/loans-usda` |
 | R38 | USDA loan area | A Yes or No in the list, the report and the compare table: Yes when the point is outside every ineligible area on USDA Rural Development's single family housing eligibility map; the report says income limits and a home purchase still apply | `feature/loans-usda` |
 | R39 | Drag to reorder report sections | In Settings each section row has a drag handle; dragging a row moves it live, scrolls the window near its edges, and the Up and Down buttons still work for the keyboard | `feature/drag-order` |
+| R40 | Skill tree scoring | Settings > Scoring has 10 points to spend on septic, slope, rain, airport, price, hunting county and internet with plus and minus buttons and a points-left counter; a factor with 0 points is not scored; saving needs at least one point; weights saved by older versions are converted once into whole points (flood dropped) | `feature/skill-tree-scoring` |
+| R41 | Dealbreaker switch per criterion | Each factor and the flood zone has a Dealbreaker switch: flood in a high-risk zone, septic very limited, slope / rain / price at the zero end of the range, airport drive over the limit, not in a hunting county, no wired or fixed wireless internet or speed at the zero end; missing data never triggers one; older settings keep flood and airport on | `feature/skill-tree-scoring` |
+| R42 | Flood zone as Yes or No | The list, the report and the compare table say Yes (with the zone and "high risk") or No (with the zone) or Unknown; it is not in the factor table | `feature/skill-tree-scoring` |
+| R43 | Settings tabs | Settings has Scoring, Costs and loans, and Report layout tabs; an error on another tab opens that tab | `feature/skill-tree-scoring` |
+| R44 | Pinned action buttons | Settings (with its tabs), the Add and Edit window and the Compare window keep their buttons at the top while the window scrolls | `feature/skill-tree-scoring` |
+| R45 | Groundwater via USGS Water Data API | Three calls (well list in a box, latest depth reading, names); nearest 3 wells shown with measured date and age; notice when all are over 10 years old | `fix/groundwater-new-usgs-api2` |
 
 ## 5. Scoring rules
 
 Schools, emergency services, hazards and hardiness zones are shown but not scored. Whether a parcel is "good" on these depends on the buyer (children, gardening plans, risk tolerance), so the app presents them and leaves the weighing to you.
 
-Default weights (editable): flood 25, price 20, septic 15, airport 15, slope 10, rain 10, internet 10, hunting 5.
+Default points (editable, 10 in total): septic 2, airport 2, price 2, slope 1, rain 1, internet 1, hunting 1. Flood zone is not scored; it is a Yes or No.
 
 - Each factor maps to 0 to 100 between a "full marks" value and a "zero" value (for example price: full marks at or below $100,000, zero at or above $150,000).
 - Missing data removes the factor from both numerator and denominator.
@@ -132,7 +138,7 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 
 ## 10. Testing
 
-- 109 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
+- 119 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
 - A browser test script with mocked services was used during development and is not part of the repository.
 - Live checks against real services are manual (see the tutorial).
 

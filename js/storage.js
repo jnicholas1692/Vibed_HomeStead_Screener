@@ -37,11 +37,28 @@ function migrateCosts(costs, saved) {
   return costs;
 }
 
+// Settings from older versions had weights (flood 25, septic 15 ...). Turn them into the 10-point version once.
+function loadPoints(saved) {
+  if (saved.points && typeof saved.points === "object") return normalizePoints(saved.points);
+  if (saved.weights && typeof saved.weights === "object") {
+    const { flood, ...rest } = saved.weights;     // flood is no longer scored
+    return normalizePoints(pointsFromWeights({ ...DEFAULT_SETTINGS.points, ...rest }, POINT_BUDGET));
+  }
+  return { ...DEFAULT_SETTINGS.points };
+}
+
+function onlyBooleans(obj) {
+  const out = {};
+  for (const [k, v] of Object.entries(obj && typeof obj === "object" ? obj : {})) if (typeof v === "boolean") out[k] = v;
+  return out;
+}
+
 function loadSettings() {
   const saved = readStored(SETTINGS_KEY, {});
   return {
-    ...DEFAULT_SETTINGS, ...saved,
-    weights: { ...DEFAULT_SETTINGS.weights, ...(saved.weights || {}) },
+    ...DEFAULT_SETTINGS, ...saved, weights: undefined,
+    points: loadPoints(saved),
+    dealbreakers: { ...DEFAULT_SETTINGS.dealbreakers, ...onlyBooleans(saved.dealbreakers) },
     costs: migrateCosts({ ...DEFAULT_SETTINGS.costs, ...(saved.costs || {}) }, saved),
     reportOrder: normalizeReportOrder(saved.reportOrder),
     huntingCounties: Array.isArray(saved.huntingCounties) ? saved.huntingCounties : [],

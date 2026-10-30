@@ -63,7 +63,14 @@
 <!-- Add parcel -->
 <dialog id="dlg-add" aria-labelledby="add-title">
   <form id="form-add" method="dialog">
-    <div class="dlg-head"><h2 id="add-title">Add a parcel</h2><button class="btn small" type="button" data-close>Close</button></div>
+    <div class="dlg-bar">
+      <h2 id="add-title">Add a parcel</h2>
+      <div class="bar-group">
+        <button class="btn small" type="button" id="btn-demo">Load 3 demo parcels</button>
+        <button class="btn small primary" type="submit" id="btn-save">Add and look up data</button>
+        <button class="btn small" type="button" data-close>Close</button>
+      </div>
+    </div>
     <div class="dlg-body">
       <div class="fields">
         <label class="wide">Name
@@ -86,7 +93,6 @@
       <p class="hint">Rural land often has no street address. Pick the spot on the map, or copy coordinates from a map app (right-click a spot in Google Maps and click the numbers).</p>
       <p class="err" id="add-error" role="alert" hidden></p>
     </div>
-    <div class="dlg-foot"><button class="btn" type="button" id="btn-demo">Load 3 demo parcels</button><button class="btn primary" type="submit" id="btn-save">Add and look up data</button></div>
   </form>
 </dialog>
 
@@ -95,20 +101,32 @@
 
 <!-- Compare -->
 <dialog id="dlg-compare" class="wide-dialog" aria-labelledby="compare-title">
-  <div class="dlg-head"><h2 id="compare-title">Compare parcels</h2><div class="head-actions no-print"><button class="btn small" type="button" data-print>Print</button><button class="btn small" type="button" data-close>Close</button></div></div>
+  <div class="dlg-bar"><h2 id="compare-title">Compare parcels</h2><div class="head-actions no-print"><button class="btn small" type="button" data-print>Print</button><button class="btn small" type="button" data-close>Close</button></div></div>
   <div class="dlg-body"><div id="compare"></div></div>
 </dialog>
 
-<!-- Criteria -->
+<!-- Settings -->
 <dialog id="dlg-criteria" aria-labelledby="criteria-title">
   <form id="form-criteria" method="dialog">
-    <div class="dlg-head"><h2 id="criteria-title">Settings</h2><button class="btn small" type="button" data-close>Close</button></div>
-    <div class="dlg-body">
-      <p class="hint">Weights say how much each factor matters. Factors with no data are skipped, not counted as zero. Scores update when you save.</p>
-      <div class="fields" id="criteria-fields"></div>
+    <div class="dlg-bar settings-bar">
+      <div class="bar-row">
+        <h2 id="criteria-title">Settings</h2>
+        <div class="bar-group">
+          <button class="btn small" type="button" id="btn-reset-criteria">Reset to defaults</button>
+          <button class="btn small primary" type="submit">Save settings</button>
+          <button class="btn small" type="button" data-close>Close</button>
+        </div>
+      </div>
+      <div class="tabs" role="tablist" aria-label="Settings sections">
+        <button type="button" role="tab" class="tab" id="tab-scoring" data-tab="scoring" aria-selected="true" aria-controls="panel-scoring">Scoring</button>
+        <button type="button" role="tab" class="tab" id="tab-costs" data-tab="costs" aria-selected="false" aria-controls="panel-costs" tabindex="-1">Costs and loans</button>
+        <button type="button" role="tab" class="tab" id="tab-layout" data-tab="layout" aria-selected="false" aria-controls="panel-layout" tabindex="-1">Report layout</button>
+      </div>
       <p class="err" id="criteria-error" role="alert" hidden></p>
     </div>
-    <div class="dlg-foot"><button class="btn" type="button" id="btn-reset-criteria">Reset to defaults</button><button class="btn primary" type="submit">Save settings</button></div>
+    <div class="dlg-body">
+      <div id="criteria-fields"></div>
+    </div>
   </form>
 </dialog>
 

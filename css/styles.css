@@ -224,3 +224,32 @@
 .order-grip { cursor: grab; touch-action: none; user-select: none; padding: 4px 6px; color: var(--muted); font-size: 1.1rem; line-height: 1; letter-spacing: -2px; }
 .order-list li.dragging { border-color: var(--accent); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22); }
 .order-list li.dragging .order-grip { cursor: grabbing; }
+
+/* Pinned button bars: title on the left, actions on the right, always visible while the window scrolls. */
+.dlg-bar h2 { font-size: 1.1rem; padding: 0; margin: 0; align-self: center; }
+.dlg-bar .head-actions { align-items: center; }
+.settings-bar { display: grid; gap: 8px; }
+.bar-row { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; align-items: center; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); }
+.tab { border: 0; border-bottom: 3px solid transparent; background: none; color: var(--muted); font: inherit; font-weight: 600; padding: 6px 12px; cursor: pointer; min-height: 36px; }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.tab-panel { display: grid; gap: 16px; }
+.tab-panel[hidden] { display: none; }
+.settings-bar .err { margin: 0; }
+
+/* The skill tree: spend a few points on what matters most. */
+.tree-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; justify-content: space-between; }
+.points-left { font-weight: 700; color: var(--accent); }
+.points-left.spent { color: var(--muted); }
+.tree { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.node { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.node.active { border-color: var(--accent); }
+.node-main { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.node-name { flex: 1 1 150px; min-width: 0; color: var(--ink); font-weight: 600; font-size: 0.92rem; }
+.pips { display: inline-flex; gap: 3px; }
+.pips i { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--line); background: transparent; }
+.pips i.on { background: var(--accent); border-color: var(--accent); }
+.node-points { min-width: 1.5ch; text-align: center; font-weight: 700; color: var(--ink); }
+.node-deal { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--muted); }
+.node-deal input { width: auto; }
+.flood-node { background: var(--bg); }

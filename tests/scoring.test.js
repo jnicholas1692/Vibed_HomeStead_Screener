@@ -5,7 +5,7 @@ const { loadScripts, plain } = require("./load");
 const app = loadScripts(["config.js", "scoring.js"]);
 const linearScore = app.get("linearScore");
 const scoreParcel = app.get("scoreParcel");
-const scoreFlood = app.get("scoreFlood");
+const floodAnswer = app.get("floodAnswer");
 const scoreInternet = app.get("scoreInternet");
 const driveMinutes = app.get("driveMinutes");
 const defaults = () => plain(app.get("DEFAULT_SETTINGS")); // a fresh copy each time
@@ -21,22 +21,71 @@ test("linearScore: ends, middle and limits", () => {
   assert.equal(linearScore(40, 5, 20), 0);    // worse than "worst" is capped at 0
 });
 
-test("high-risk flood zone scores 0 and is a dealbreaker", () => {
-  assert.equal(scoreFlood("AE"), 0);
+test("flood zone is a yes or no with details, and is not a scored factor", () => {
+  assert.deepEqual(plain(floodAnswer("AE")), { inZone: true, text: "Yes: zone AE, high risk" });
+  assert.equal(floodAnswer("X").inZone, false);
+  assert.ok(floodAnswer("X (shaded)").text.includes("moderate"));
   const result = scoreParcel({ site: { floodZone: "AE" } }, defaults());
-  assert.ok(plain(result.dealbreakers).includes("High-risk flood zone"));
+  assert.equal("flood" in plain(result.parts), false);
 });
 
-test("an unknown flood zone is not treated as safe", () => {
-  assert.equal(scoreFlood(null), null);
-  assert.equal(scoreFlood("AREA NOT INCLUDED"), null);
+test("a flood dealbreaker follows its switch", () => {
+  const s = defaults();
+  assert.ok(plain(scoreParcel({ site: { floodZone: "AE" } }, s).dealbreakers).includes("High-risk flood zone"));
+  s.dealbreakers.flood = false;
+  assert.equal(scoreParcel({ site: { floodZone: "AE" } }, s).dealbreakers.length, 0);
+});
+
+test("an unknown flood zone is not treated as safe or as a dealbreaker", () => {
+  assert.equal(floodAnswer(null).inZone, null);
+  assert.equal(floodAnswer("AREA NOT INCLUDED").inZone, null);
+  assert.equal(scoreParcel({ site: { floodZone: "AREA NOT INCLUDED" } }, defaults()).dealbreakers.length, 0);
+});
+
+test("the default skill tree spends exactly 10 points on scored factors", () => {
+  const points = plain(app.get("DEFAULT_SETTINGS.points"));
+  assert.equal(Object.values(points).reduce((a, b) => a + b, 0), 10);
+  assert.equal("flood" in points, false);
+});
+
+test("every other dealbreaker switch triggers at the worst end of its range, and only when on", () => {
+  const s = defaults();
+  for (const key of Object.keys(s.dealbreakers)) s.dealbreakers[key] = true;
+  s.huntingCounties = ["Blanco TX"];
+  const bad = { county: "Kerr", state: "TX", askingPrice: 200000,
+    site: { floodZone: "X", septicRating: "Very limited", slopePct: 25, annualRainIn: 10, airportMiles: 20,
+            internet: { bestMbps: null, technologies: ["Satellite"], providers: [] } } };
+  const found = plain(scoreParcel(bad, s).dealbreakers).join(" | ");
+  for (const word of ["septic", "Slope", "Rainfall", "Price", "hunt", "internet"]) assert.ok(found.includes(word), `${word}: ${found}`);
+  for (const key of Object.keys(s.dealbreakers)) s.dealbreakers[key] = false;
+  assert.equal(scoreParcel(bad, s).dealbreakers.length, 0);
+});
+
+test("missing data never triggers a dealbreaker", () => {
+  const s = defaults();
+  for (const key of Object.keys(s.dealbreakers)) s.dealbreakers[key] = true;
+  s.huntingCounties = ["Blanco TX"];
+  assert.equal(scoreParcel({ site: {} }, s).dealbreakers.length, 0);
+});
+
+test("pointsFromWeights converts old weights to exactly the budget, whole numbers", () => {
+  const out = plain(app.get("pointsFromWeights")({ septic: 15, slope: 10, rain: 10, airport: 15, price: 20, hunting: 5, internet: 10 }, 10));
+  assert.deepEqual(out, { septic: 2, slope: 1, rain: 1, airport: 2, price: 2, hunting: 1, internet: 1 });
+  assert.equal(Object.values(plain(app.get("pointsFromWeights")({ a: 1, b: 1, c: 1 }, 10))).reduce((x, y) => x + y, 0), 10);
+});
+
+test("normalizePoints drops unknown factors and never goes over the budget", () => {
+  const out = plain(app.get("normalizePoints")({ price: 8, septic: 8, bogus: 5, slope: -3, rain: 2.9 }));
+  assert.equal(Object.values(out).reduce((a, b) => a + b, 0), 10);
+  assert.equal(out.septic, 8); assert.equal(out.rain, 2); assert.equal(out.slope, 0); assert.equal(out.price, 0);   // factors are filled in order until the budget runs out
+  assert.equal("bogus" in out, false);
 });
 
 test("missing data is skipped, not counted as zero", () => {
-  const result = scoreParcel({ site: { floodZone: "X" } }, defaults());
+  const result = scoreParcel({ site: { septicRating: "Not limited" } }, defaults());
   assert.equal(result.total, 100);
   assert.equal(result.factorsScored, 1);
-  assert.equal(result.factorsTotal, 8);
+  assert.equal(result.factorsTotal, 7);
 });
 
 test("a parcel with no data has no total", () => {
@@ -70,11 +119,11 @@ test("hunting counties match ignoring capitals; an empty list skips the factor",
   assert.equal(scoreParcel({ county: "Kerr", site: {} }, s).parts.hunting, 0);
 });
 
-test("changing a weight changes the total", () => {
+test("changing the points changes the total", () => {
   const parcel = { askingPrice: 90000, site: { floodZone: "X", septicRating: "Very limited" } };
   const base = scoreParcel(parcel, defaults()).total;
   const heavySeptic = defaults();
-  heavySeptic.weights.septic = 100;
+  heavySeptic.points.septic = 10;
   assert.ok(scoreParcel(parcel, heavySeptic).total < base);
 });
 
@@ -109,7 +158,7 @@ test("sort by price: lowest first, parcels with no price last", () => {
 });
 
 test("sort by score: best first, no score last; name sort ignores capitals", () => {
-  const items = [item("low", { site: { floodZone: "AE" } }), item("empty"), item("high", { site: { floodZone: "X" } })];
+  const items = [item("low", { site: { septicRating: "Very limited" } }), item("empty"), item("high", { site: { septicRating: "Not limited" } })];
   assert.deepEqual(names(applyView(items, viewWith({ sort: "score" }), defaults())), ["high", "low", "empty"]);
   const two = [item("beta"), item("Alpha")];
   assert.deepEqual(names(applyView(two, viewWith({ sort: "name" }), defaults())), ["Alpha", "beta"]);
@@ -226,6 +275,7 @@ test("groundwaterText and the comparison row handle every state", () => {
   assert.equal(text(null), "no data");
   assert.ok(text({ wells: [], searchedMiles: 17 }).includes("within about 17 miles"));
   assert.equal(text({ wells: [{ depthFt: 85.2, distanceMiles: 3.2, measured: "2024-03-05" }], searchedMiles: 17 }), "about 85.2 ft below ground (well 3.2 mi away, measured 2024-03-05)");
+  assert.equal(text({ wells: [{ depthFt: 234.2, distanceMiles: 9.1, measured: "1996-07-08", yearsAgo: 30 }], searchedMiles: 17 }), "about 234.2 ft below ground (well 9.1 mi away, measured 1996-07-08, 30 years ago)");
   const mk = (gw) => ({ parcel: { name: "P", site: gw === "skip" ? {} : { groundwater: gw } }, score: { total: 50, dealbreakers: [] } });
   const rows = plain(app.get("buildComparison")([mk({ wells: [{ depthFt: 40, distanceMiles: 1, measured: "2024-01-01" }], searchedMiles: 17 }), mk({ wells: [{ depthFt: 200, distanceMiles: 1, measured: "2024-01-01" }], searchedMiles: 17 })], plain(app.get("DEFAULT_SETTINGS"))));
   const row = rows.find((r) => r.label.startsWith("Groundwater"));
@@ -237,8 +287,8 @@ test("groundwaterText and the comparison row handle every state", () => {
 test("glossaryTip: meaning first, then the source; unknown labels give nothing", () => {
   const withApp = loadScripts(["config.js", "scoring.js"]);
   const tip = withApp.get("glossaryTip");
-  assert.ok(tip("FEMA flood zone").startsWith("FEMA's flood map label."));
-  assert.ok(tip("FEMA flood zone").endsWith("Source: FEMA National Flood Hazard Layer."));
+  assert.ok(tip("In a flood zone?").startsWith("Yes means FEMA maps the spot"));
+  assert.ok(tip("In a flood zone?").endsWith("Source: FEMA National Flood Hazard Layer."));
   assert.equal(tip("Coordinates").includes("Source:"), false);       // no source key, so no source sentence
   assert.equal(tip("Not a real label"), "");
 });

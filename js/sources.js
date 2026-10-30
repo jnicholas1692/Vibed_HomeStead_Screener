@@ -1057,49 +1057,70 @@ async function lookupRoads(lat, lon) {
 
 /* ---- groundwater levels, from USGS monitoring wells ---- */
 
-const GWLEVELS_URL = "https://waterservices.usgs.gov/nwis/gwlevels/";
+// The old USGS "waterservices" groundwater service was retired. This is its replacement, the USGS Water Data API.
+// Three quick steps: (1) which wells in a box around the point have a depth-to-water reading at all,
+// (2) the latest reading for the nearest few, (3) their names.
+const USGS_API = "https://api.waterdata.usgs.gov/ogcapi/v0/collections/";
 const GROUNDWATER_BOX_DEGREES = 0.25;      // about 17 miles each way
+const GROUNDWATER_CANDIDATES = 8;          // how many nearby wells to fetch readings for
+const DEPTH_TO_WATER = "72019";            // USGS parameter: depth to water level, feet below land surface
 
-// Turns the USGS reply (WaterML as JSON) into the nearest few wells that report "depth to water below land surface"
-// (parameter 72019), each with its latest reading: [{ name, siteNo, distanceMiles, depthFt, measured, readings }].
-function parseGroundwater(data, lat, lon) {
-  const series = (data && data.value && data.value.timeSeries) || [];
+// From the list of wells that have depth readings (with the date of the last one), the nearest few:
+// [{ id, distanceMiles }] closest first, each well once.
+function nearestWellSites(meta, lat, lon) {
+  const seen = new Set();
+  const sites = [];
+  for (const f of (meta && meta.features) || []) {
+    const id = (f.properties || {}).monitoring_location_id;
+    const c = (f.geometry || {}).coordinates;
+    if (!id || seen.has(id) || !Array.isArray(c) || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) continue;
+    seen.add(id);
+    sites.push({ id, distanceMiles: haversineMiles(lat, lon, c[1], c[0]) });
+  }
+  sites.sort((a, b) => a.distanceMiles - b.distanceMiles);
+  return sites.slice(0, GROUNDWATER_CANDIDATES);
+}
+
+// Joins the sites with their latest readings and names into the wells shown on the report, nearest first, at most three:
+// [{ name, siteNo, distanceMiles, depthFt, measured, yearsAgo }]. A well with no usable reading is left out.
+function buildGroundwater(sites, latest, names, nowMs) {
+  const readingOf = new Map();
+  for (const f of (latest && latest.features) || []) {
+    const p = f.properties || {};
+    if (p.value === "" || p.value == null || !Number.isFinite(Number(p.value)) || !p.time) continue;
+    const old = readingOf.get(p.monitoring_location_id);
+    if (!old || String(p.time) > String(old.time)) readingOf.set(p.monitoring_location_id, p);   // keep the newest
+  }
+  const nameOf = new Map(((names && names.features) || []).map((f) => [(f.properties || {}).id, (f.properties || {}).monitoring_location_name]));
   const wells = [];
-  for (const ts of series) {
-    const codes = ((ts.variable || {}).variableCode || []).map((c) => String(c.value));
-    if (!codes.includes("72019")) continue;                      // other codes are water-level elevations or other measures
-    const geo = ((ts.sourceInfo || {}).geoLocation || {}).geogLocation || {};
-    const wLat = Number(geo.latitude);
-    const wLon = Number(geo.longitude);
-    if (!Number.isFinite(wLat) || !Number.isFinite(wLon)) continue;
-    const readings = ((ts.values || [])[0] || {}).value || [];
-    const valid = readings.filter((r) => r.value !== "" && r.value != null && Number.isFinite(Number(r.value)) && r.dateTime)
-      .sort((a, b) => String(a.dateTime).localeCompare(String(b.dateTime)));
-    if (!valid.length) continue;
-    const latest = valid[valid.length - 1];
-    const siteCode = (((ts.sourceInfo || {}).siteCode || [])[0] || {}).value || null;
+  for (const site of sites) {
+    const reading = readingOf.get(site.id);
+    if (!reading) continue;
+    const when = Date.parse(reading.time);
     wells.push({
-      name: (ts.sourceInfo || {}).siteName || "(unnamed well)",
-      siteNo: siteCode,
-      distanceMiles: Math.round(haversineMiles(lat, lon, wLat, wLon) * 10) / 10,
-      depthFt: Math.round(Number(latest.value) * 10) / 10,
-      measured: String(latest.dateTime).slice(0, 10),
-      readings: valid.length,
+      name: nameOf.get(site.id) || "(unnamed well)",
+      siteNo: site.id.replace(/^USGS-/, ""),
+      distanceMiles: Math.round(site.distanceMiles * 10) / 10,
+      depthFt: Math.round(Number(reading.value) * 10) / 10,
+      measured: String(reading.time).slice(0, 10),
+      yearsAgo: Number.isFinite(when) ? Math.max(0, Math.round((nowMs - when) / 3.156e10)) : null,
     });
   }
-  wells.sort((a, b) => a.distanceMiles - b.distanceMiles);
-  const seen = new Set();
-  const unique = wells.filter((w) => (seen.has(w.siteNo || w.name) ? false : seen.add(w.siteNo || w.name)));   // a well can appear once per series
-  return { wells: unique.slice(0, 3), searchedMiles: Math.round(GROUNDWATER_BOX_DEGREES * 69) };
+  return { wells: wells.slice(0, 3), searchedMiles: Math.round(GROUNDWATER_BOX_DEGREES * 69) };
 }
 
 async function lookupGroundwater(lat, lon) {
   const d = GROUNDWATER_BOX_DEGREES;
-  const params = new URLSearchParams({
-    format: "json", siteType: "GW", period: "P3650D", parameterCd: "72019",
-    bBox: [lon - d, lat - d, lon + d, lat + d].map((v) => v.toFixed(5)).join(","),
-  });
-  return parseGroundwater(await getJSON(`${GWLEVELS_URL}?${params}`, {}, 60000), lat, lon);
+  const bbox = [lon - d, lat - d, lon + d, lat + d].map((v) => v.toFixed(5)).join(",");
+  const meta = await getJSON(`${USGS_API}field-measurements-metadata/items?f=json&bbox=${bbox}&parameter_code=${DEPTH_TO_WATER}&limit=1000`, {}, 40000);
+  const sites = nearestWellSites(meta, lat, lon);
+  if (!sites.length) return buildGroundwater([], null, null, Date.now());
+  const ids = encodeURIComponent(sites.map((x) => x.id).join(","));
+  const [latest, names] = await Promise.all([
+    getJSON(`${USGS_API}latest-field-measurements/items?f=json&parameter_code=${DEPTH_TO_WATER}&monitoring_location_id=${ids}&limit=50`, {}, 40000),
+    getJSON(`${USGS_API}monitoring-locations/items?f=json&id=${ids}&limit=50`, {}, 40000).catch(() => null),   // names are a nicety; the readings matter
+  ]);
+  return buildGroundwater(sites, latest, names, Date.now());
 }
 
 /* =====================================================================

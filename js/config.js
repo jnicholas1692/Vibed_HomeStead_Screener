@@ -4,7 +4,10 @@
    1. Criteria (what "good land" means to you). Saved in this browser.
    ===================================================================== */
 const DEFAULT_SETTINGS = {
-  weights: { flood: 25, septic: 15, slope: 10, rain: 10, airport: 15, price: 20, hunting: 5, internet: 10 },
+  // The skill tree: POINT_BUDGET points to spend across the factors that matter most. A factor with 0 points is not scored.
+  points: { septic: 2, slope: 1, rain: 1, airport: 2, price: 2, hunting: 1, internet: 1 },
+  // Which factors rule a parcel out completely when they hit their worst end. Flood is not scored; it is a yes or no.
+  dealbreakers: { flood: true, septic: false, slope: false, rain: false, airport: true, price: false, hunting: false, internet: false },
   priceTarget: 100000, priceMax: 150000,        // full marks at or below target, zero at or above max
   slopeIdeal: 5, slopeMax: 20,                   // slope in percent
   rainFull: 35, rainZero: 15,                    // average inches of rain per year
@@ -66,8 +69,40 @@ const LOAN_RULES = {
   fhaLoanLimitFloor: 541287,                        // the national floor for a one-unit home in 2026; higher in costly counties
 };
 
+const POINT_BUDGET = 10;
+
+// Splits `budget` points across factors in proportion to old-style weights, using whole points
+// (the largest leftover fractions get the extra ones). Used once to convert settings saved by older versions.
+function pointsFromWeights(weights, budget) {
+  const keys = Object.keys(weights).filter((k) => Number(weights[k]) > 0);
+  const total = keys.reduce((sum, k) => sum + Number(weights[k]), 0);
+  const result = Object.fromEntries(Object.keys(weights).map((k) => [k, 0]));
+  if (total <= 0) return result;
+  const shares = keys.map((k) => ({ k, exact: Number(weights[k]) / total * budget }));
+  for (const s of shares) result[s.k] = Math.floor(s.exact);
+  let left = budget - shares.reduce((sum, s) => sum + Math.floor(s.exact), 0);
+  for (const s of [...shares].sort((a, b) => (b.exact % 1) - (a.exact % 1))) {
+    if (left <= 0) break;
+    result[s.k] += 1; left -= 1;
+  }
+  return result;
+}
+
+// Cleans up saved points: only known factors, whole numbers, never more than the budget in total.
+function normalizePoints(saved) {
+  const known = Object.keys(DEFAULT_SETTINGS.points);
+  const out = Object.fromEntries(known.map((k) => [k, 0]));
+  let spent = 0;
+  for (const k of known) {
+    const v = Math.max(0, Math.floor(Number(saved && saved[k]) || 0));
+    const take = Math.min(v, POINT_BUDGET - spent);
+    out[k] = take; spent += take;
+  }
+  return out;
+}
+
 const FACTOR_LABELS = {
-  flood: "Flood zone", septic: "Septic suitability", slope: "Slope", rain: "Rainfall",
+  septic: "Septic suitability", slope: "Slope", rain: "Rainfall",
   airport: "Airport distance", price: "Price", hunting: "Hunting county", internet: "Internet",
 };
 
@@ -210,7 +245,7 @@ const DATA_SOURCES = {
   roads:        { label: "Road access",              name: "OpenStreetMap through the Overpass API",                 url: "https://www.openstreetmap.org/copyright",                  vintage: "current OpenStreetMap data" },
   wetlands:     { label: "Wetlands",                 name: "US Fish and Wildlife Service National Wetlands Inventory", url: "https://www.fws.gov/program/national-wetlands-inventory", vintage: "current NWI map (mapping dates vary by area)" },
   publicLand:   { label: "Public and protected land", name: "USGS Protected Areas Database of the US (PAD-US)",      url: "https://www.usgs.gov/programs/gap-analysis-project/science/pad-us-data-overview", vintage: "current PAD-US release" },
-  groundwater:  { label: "Groundwater",            name: "USGS National Water Information System (groundwater levels)", url: "https://waterdata.usgs.gov/nwis/gw",                  vintage: "latest measurements in the past 10 years" },
+  groundwater:  { label: "Groundwater",            name: "USGS Water Data API (field measurements of groundwater level)", url: "https://waterdata.usgs.gov/",                  vintage: "latest measurement at each well; many are decades old" },
   usda:         { label: "USDA loan area",           name: "USDA Rural Development Single Family Housing eligibility map (ineligible areas)", url: "https://eligibility.sc.egov.usda.gov/eligibility/", vintage: "current USDA map" },
   costs:        { label: "Rough cost",               name: "Placeholder rates and prices from your Criteria",        url: null,                                                       vintage: "your settings; the county tax rate comes from the Census ACS when known" },
 };
@@ -220,7 +255,7 @@ const DATA_SOURCES = {
 const GLOSSARY = {
   // ---- the main table ----
   "Coordinates": { text: "Latitude and longitude of the point you picked or the address match. All lookups are for this one point." },
-  "FEMA flood zone": { source: "flood", text: "FEMA's flood map label. Zones starting with A or V are high risk: at least a 1% chance of flooding in any year, about 26% over a 30-year loan, and lenders require flood insurance there. Zone X is lower risk (shaded X is a 0.2% yearly chance). \"Unknown\" often means the area has not been mapped." },
+  "In a flood zone?": { source: "flood", text: "Yes means FEMA maps the spot in a high-risk flood zone (FEMA zones starting with A or V). No means it is mapped as lower risk. FEMA's flood map label. Zones starting with A or V are high risk: at least a 1% chance of flooding in any year, about 26% over a 30-year loan, and lenders require flood insurance there. Zone X is lower risk (shaded X is a 0.2% yearly chance). \"Unknown\" often means the area has not been mapped." },
   "Elevation": { source: "elevation", text: "Height of the ground above sea level, in feet." },
   "Slope (steepest of 4 directions)": { source: "elevation", text: "How steeply the ground drops, as a percent: 10% means 10 feet of drop in 100 feet. The app compares the point with the ground a short way north, south, east and west and keeps the steepest. Steep ground raises driveway, foundation and septic costs." },
   "Soil": { source: "soil", text: "Name of the main soil at the point. Each name covers a mapped area that can include small patches of other soils." },
@@ -269,7 +304,6 @@ const GLOSSARY = {
   "Rough monthly cost": { source: "costs", text: "Estimated monthly cost of owning the land (loan, property tax, insurance, and so on) from the rates in Criteria. It is not a quote." },
   "Rough start-up cost (septic + well)": { source: "costs", text: "One-time estimate for a septic system and a well from the placeholder prices in Criteria. Local contractors can quote real prices." },
   "Acres": { text: "Size of the parcel, as you entered it. The app does not know parcel boundaries." },
-  "Flood zone": { source: "flood", text: "FEMA's flood map label. Zones starting with A or V are high risk (at least a 1% yearly chance of flooding). Zone X is lower risk." },
   "Septic suitability": { source: "soil", text: "The USDA's rating of how well the soil works for a septic drain field. A county site evaluation decides what is allowed." },
   "Slope": { source: "elevation", text: "How steeply the ground drops, as a percent. Steep ground raises driveway, foundation and septic costs." },
   "Rain per year": { source: "rain", text: "Average rain in inches a year, from several recent years of weather model data." },

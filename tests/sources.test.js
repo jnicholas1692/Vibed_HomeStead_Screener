@@ -920,41 +920,73 @@ test("estimateCosts: uses the county's rate when known, your setting when not or
   assert.equal(plain(app.get("estimateCosts")({ askingPrice: 100000, site: {} }, s)).taxSource, "setting");
 });
 
-// ---- groundwater (USGS monitoring wells) ----
-const gwSeries = (siteNo, name, lat, lon, code, values) => ({
-  sourceInfo: { siteName: name, siteCode: [{ value: siteNo }], geoLocation: { geogLocation: { latitude: lat, longitude: lon } } },
-  variable: { variableCode: [{ value: code }] },
-  values: [{ value: values.map(([dateTime, value]) => ({ value, dateTime })) }],
+// ---- groundwater (USGS Water Data API) ----
+const gwMeta = (...sites) => ({ features: sites.map(([id, lon, lat]) => ({ properties: { monitoring_location_id: id }, geometry: { coordinates: [lon, lat] } })) });
+const gwReading = (id, value, time) => ({ properties: { monitoring_location_id: id, value, time } });
+
+test("nearestWellSites: closest first, each well once, bad rows skipped, at most 8", () => {
+  const pick = pure.get("nearestWellSites");
+  const meta = gwMeta(["USGS-FAR", -98.2, 30.4], ["USGS-NEAR", -98.41, 30.31], ["USGS-NEAR", -98.41, 30.31], ["USGS-NOGEO", null, null]);
+  meta.features.push({ properties: {} }, { properties: { monitoring_location_id: "USGS-NOCOORDS" } });
+  const sites = plain(pick(meta, 30.3, -98.4));
+  assert.deepEqual(sites.map((s) => s.id), ["USGS-NEAR", "USGS-FAR"]);
+  assert.ok(sites[0].distanceMiles < 2 && sites[1].distanceMiles > 10);
+  assert.equal(plain(pick(gwMeta(...Array.from({ length: 20 }, (_, i) => [`USGS-${i}`, -98.4 + i * 0.001, 30.3])), 30.3, -98.4)).length, 8);
+  assert.deepEqual(plain(pick({}, 30, -98)), []);
 });
 
-test("parseGroundwater: nearest wells first, latest reading, only depth-to-water series", () => {
-  const parse = pure.get("parseGroundwater");
-  const data = { value: { timeSeries: [
-    gwSeries("300000098000001", "Far well", 30.4, -98.2, "72019", [["2020-01-01T00:00:00", "50.0"]]),
-    gwSeries("300000098000002", "Near well", 30.31, -98.41, "72019", [["2019-05-01T00:00:00", "80.0"], ["2024-03-05T00:00:00", "85.24"], ["2022-01-01T00:00:00", "83"]]),
-    gwSeries("300000098000003", "Elevation series", 30.3, -98.4, "62610", [["2024-01-01T00:00:00", "1200"]]),
-    gwSeries("300000098000004", "Blank readings", 30.3, -98.4, "72019", [["2024-01-01T00:00:00", ""]]),
-    gwSeries("300000098000002", "Near well", 30.31, -98.41, "72019", [["2021-01-01T00:00:00", "81"]]),
-  ] } };
-  const r = plain(parse(data, 30.3, -98.4));
-  assert.deepEqual(r.wells.map((w) => w.name), ["Near well", "Far well"]);
+test("buildGroundwater: newest reading per well, names, age in years, wells with no reading left out", () => {
+  const build = pure.get("buildGroundwater");
+  const sites = [{ id: "USGS-A", distanceMiles: 1.04 }, { id: "USGS-B", distanceMiles: 3 }, { id: "USGS-C", distanceMiles: 4 }, { id: "USGS-D", distanceMiles: 5 }, { id: "USGS-E", distanceMiles: 6 }];
+  const latest = { features: [gwReading("USGS-A", "85.24", "2024-03-05T12:00:00+00:00"), gwReading("USGS-A", "80", "2019-01-01T12:00:00+00:00"),
+    gwReading("USGS-C", "", "2020-01-01T12:00:00+00:00"), gwReading("USGS-D", "30", "1996-07-08T12:00:00+00:00"), gwReading("USGS-E", "12.5", "2010-01-01T12:00:00+00:00")] };
+  const names = { features: [{ properties: { id: "USGS-A", monitoring_location_name: "LR-57-1" } }] };
+  const r = plain(build(sites, latest, names, Date.parse("2026-10-30T00:00:00Z")));
+  assert.deepEqual(r.wells.map((w) => w.siteNo), ["A", "D", "E"]);          // B and C have no usable reading; only three are kept
   assert.equal(r.wells[0].depthFt, 85.2);
   assert.equal(r.wells[0].measured, "2024-03-05");
-  assert.equal(r.wells[0].readings, 3);
-  assert.ok(r.wells[0].distanceMiles < 2 && r.wells[1].distanceMiles > 10);
+  assert.equal(r.wells[0].name, "LR-57-1");
+  assert.equal(r.wells[0].distanceMiles, 1);
+  assert.equal(r.wells[0].yearsAgo, 3);
+  assert.equal(r.wells[1].yearsAgo, 30);
+  assert.equal(r.wells[1].name, "(unnamed well)");
   assert.equal(r.searchedMiles, 17);
-  assert.deepEqual(plain(parse({}, 30, -98)).wells, []);
-  assert.deepEqual(plain(parse({ value: { timeSeries: [{ sourceInfo: {}, variable: { variableCode: [{ value: "72019" }] } }] } }, 30, -98)).wells, []);
+  assert.deepEqual(plain(build([], null, null, 0)).wells, []);
 });
 
-test("lookupGroundwater: asks for a box around the point and 72019 only", async () => {
-  const fetchFn = fakeFetch({ "waterservices.usgs.gov": { body: JSON.stringify({ value: { timeSeries: [] } }) } });
+test("lookupGroundwater: lists wells in a box, then reads the nearest ones and names them", async () => {
+  const fetchFn = fakeFetch({
+    "field-measurements-metadata": { body: JSON.stringify(gwMeta(["USGS-301800098240001", -98.42, 30.30], ["USGS-300000098000009", -98.1, 30.5])) },
+    "latest-field-measurements": { body: JSON.stringify({ features: [gwReading("USGS-301800098240001", "85.24", "2024-03-05T12:00:00+00:00")] }) },
+    "monitoring-locations": { body: JSON.stringify({ features: [{ properties: { id: "USGS-301800098240001", monitoring_location_name: "TEST WELL 1" } }] }) },
+  });
   const app = loadScripts(["config.js", "sources.js"], { fetch: fetchFn });
   const r = plain(await app.get("lookupGroundwater")(30.3, -98.4));
-  assert.deepEqual(r.wells, []);
-  const url = decodeURIComponent(fetchFn.calls[0].url);
-  assert.ok(url.includes("/nwis/gwlevels/?") && url.includes("format=json") && url.includes("parameterCd=72019") && url.includes("siteType=GW"));
-  assert.ok(url.includes("bBox=-98.65000,30.05000,-98.15000,30.55000"), url);
+  assert.equal(r.wells.length, 1);
+  assert.equal(r.wells[0].name, "TEST WELL 1");
+  const first = decodeURIComponent(fetchFn.calls[0].url);
+  assert.ok(first.includes("field-measurements-metadata/items") && first.includes("parameter_code=72019") && first.includes("bbox=-98.65000,30.05000,-98.15000,30.55000"), first);
+  const second = decodeURIComponent(fetchFn.calls[1].url);
+  assert.ok(second.includes("monitoring_location_id=USGS-301800098240001,USGS-300000098000009"), second);
+});
+
+test("lookupGroundwater: no wells in the box gives an empty list without more requests; names failing is not fatal", async () => {
+  const none = fakeFetch({ "field-measurements-metadata": { body: JSON.stringify({ features: [] }) } });
+  assert.deepEqual(plain(await loadScripts(["config.js", "sources.js"], { fetch: none }).get("lookupGroundwater")(30.3, -98.4)).wells, []);
+  assert.equal(none.calls.length, 1);
+  const noNames = fakeFetch({
+    "field-measurements-metadata": { body: JSON.stringify(gwMeta(["USGS-1", -98.4, 30.3])) },
+    "latest-field-measurements": { body: JSON.stringify({ features: [gwReading("USGS-1", "50", "2020-01-01T12:00:00+00:00")] }) },
+    "monitoring-locations": { status: 500, body: "boom" },
+  });
+  const r = plain(await loadScripts(["config.js", "sources.js"], { fetch: noNames }).get("lookupGroundwater")(30.3, -98.4));
+  assert.equal(r.wells[0].name, "(unnamed well)");
+  assert.equal(r.wells[0].depthFt, 50);
+});
+
+test("lookupGroundwater: a service failure is thrown so the report can say so", async () => {
+  const down = fakeFetch({ "field-measurements-metadata": { status: 503, body: "" } });
+  await assert.rejects(() => loadScripts(["config.js", "sources.js"], { fetch: down }).get("lookupGroundwater")(30.3, -98.4));
 });
 
 // ---- Overpass requests wait in line ----
@@ -1097,4 +1129,17 @@ test("saved settings with the old percent down payment become dollars", () => {
   const loaded = plain(storage.get("loadSettings")());
   assert.equal(loaded.costs.downPayment, 20000);
   assert.equal(loaded.costs.downPct, undefined);
+});
+
+test("saved settings with old weights become 10 points, flood is dropped and the switches keep their old behavior", () => {
+  const storage = loadScripts(["config.js", "scoring.js", "sources.js", "storage.js"], {
+    localStorage: { getItem: (k) => (k.includes("settings") ? JSON.stringify({ weights: { flood: 25, septic: 15, slope: 10, rain: 10, airport: 15, price: 20, hunting: 5, internet: 10 } }) : null), setItem() {}, removeItem() {} },
+    document: { getElementById: () => ({ hidden: true }) },
+  });
+  const loaded = plain(storage.get("loadSettings")());
+  assert.equal(Object.values(loaded.points).reduce((a, b) => a + b, 0), 10);
+  assert.equal(loaded.weights, undefined);
+  assert.equal(loaded.dealbreakers.flood, true);
+  assert.equal(loaded.dealbreakers.airport, true);
+  assert.equal(loaded.dealbreakers.price, false);
 });

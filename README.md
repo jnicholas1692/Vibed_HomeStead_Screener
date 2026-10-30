@@ -21,7 +21,8 @@ This is a personal test of AI-assisted development. I am using it to see how far
 - Choose the order of the report sections in Settings
 - Monthly cost with a dollar down payment, compared across your land loan and 30-year conventional and FHA home loans
 - USDA loan area (Yes or No) from USDA Rural Development's eligibility map
-- Score from 0 to 100 from eight factors you can weight, with dealbreakers (high-risk flood zone, too far from an airport)
+- Score from 0 to 100 using a 10-point skill tree: spend your points on the factors that matter most, and switch on a dealbreaker for any of them
+- Flood zone shown as a plain Yes or No with the zone, not as a score
 - Nearest airport from about 100 major US airports, or your own list
 - Nearest grocery store, hardware store, Costco, feed store and vet, with real road drive times
 - Nearest elementary, middle and high school
@@ -103,6 +104,8 @@ npm test
 
 ## Version history
 
+- **v2.0.0** Scoring is a 10-point skill tree with a dealbreaker switch on every criterion; flood zone is a Yes or No instead of a score; Settings has Scoring, Costs and loans, and Report layout tabs; the Save, Reset and Close buttons (and the Add and Compare buttons) stay pinned at the top
+- **v2.0.1** Groundwater now uses the new USGS Water Data API (the old service was retired); it shows the nearest wells with their last measurement date and age, and warns when all readings are over 10 years old
 - **v1.9.1** Drag the report sections into order in Settings (Up and Down still work)
 - **v1.9.0** Down payment in dollars; asking price next to the name in the list; 30-year conventional and FHA payments beside your land loan; a USDA loan area Yes or No from USDA's eligibility map
 - **v1.8.0** Edit a parcel's name, address, location, acres and price after adding it; choose the order of the report sections in Settings (the Criteria button is now Settings)

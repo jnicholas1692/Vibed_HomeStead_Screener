@@ -25,11 +25,13 @@ function airportMinutes(site, s) {
   return null;
 }
 
-function scoreFlood(zone) {
-  if (HIGH_RISK_FLOOD_ZONES.has(zone)) return 0;
-  if (zone === "X") return 100;
-  if (zone === "X (shaded)") return 60;
-  return null; // unmapped or unusual: unknown, never "safe"
+// Flood zone is not scored. It is a yes or no with the details: {inZone: true|false|null, text}.
+function floodAnswer(zone) {
+  if (!zone) return { inZone: null, text: "Unknown (not mapped or lookup failed)" };
+  if (HIGH_RISK_FLOOD_ZONES.has(zone)) return { inZone: true, text: `Yes: zone ${zone}, high risk` };
+  if (zone === "X (shaded)") return { inZone: false, text: "No: zone X (shaded), moderate risk" };
+  if (zone === "X") return { inZone: false, text: "No: zone X, minimal risk" };
+  return { inZone: null, text: `Unknown (zone ${zone})` };   // unusual labels are never treated as safe
 }
 
 function scoreInternet(internet, s) {
@@ -40,13 +42,26 @@ function scoreInternet(internet, s) {
   return linearScore(internet.bestMbps, s.internetFullMbps, s.internetZeroMbps);
 }
 
-function findDealbreakers(parcel, s) {
+// The reasons a parcel is ruled out, for the factors whose dealbreaker switch is on. Missing data never rules a parcel out.
+// `parts` are the factor scores from scoreParcel.
+function findDealbreakers(parcel, s, parts) {
   const found = [];
   const site = parcel.site || {};
-  if (HIGH_RISK_FLOOD_ZONES.has(site.floodZone)) found.push("High-risk flood zone");
+  const on = s.dealbreakers || {};
+  if (on.flood && HIGH_RISK_FLOOD_ZONES.has(site.floodZone)) found.push("High-risk flood zone");
+  if (on.septic && site.septicRating === "Very limited") found.push("Soil is very limited for a septic system");
+  if (on.slope && parts.slope === 0) found.push(`Slope is ${s.slopeMax}% or steeper`);
+  if (on.rain && parts.rain === 0) found.push(`Rainfall is ${s.rainZero} inches a year or less`);
   const airportMin = airportMinutes(site, s);
-  if (airportMin != null && airportMin > s.airportMaxMin) {
+  if (on.airport && airportMin != null && airportMin > s.airportMaxMin) {
     found.push(`Estimated drive to airport is over ${Math.round(s.airportMaxMin / 60 * 10) / 10} hours`);
+  }
+  if (on.price && parts.price === 0) found.push(`Price is ${money(s.priceMax)} or more`);
+  if (on.hunting && parts.hunting === 0) found.push("Not in a county where you can hunt");
+  if (on.internet && site.internet) {
+    // bestMbps is empty when only satellite (or nothing) is listed; otherwise the speed itself decides.
+    if (site.internet.bestMbps == null) found.push("No wired or fixed wireless internet");
+    else if (parts.internet === 0) found.push(`Internet is ${s.internetZeroMbps} Mbps or slower`);
   }
   return found;
 }
@@ -182,7 +197,7 @@ function summaryText(parcel, s) {
   const perAcre = parcel.askingPrice != null && parcel.acres > 0 ? `, ${money(parcel.askingPrice / parcel.acres)} per acre` : "";
   lines.push(`Asking price: ${money(parcel.askingPrice)} for ${parcel.acres ?? "?"} acres${perAcre}`);
   lines.push(`Dealbreakers: ${score.dealbreakers.length ? score.dealbreakers.join("; ") : "none"}`);
-  lines.push(`Flood zone: ${site.floodZone || "unknown"}; septic: ${site.septicRating || "unknown"}; slope: ${site.slopePct == null ? "unknown" : site.slopePct + "%"}; rain: ${site.annualRainIn == null ? "unknown" : site.annualRainIn + " in/year"}`);
+  lines.push(`In a flood zone? ${floodAnswer(site.floodZone).text}; septic: ${site.septicRating || "unknown"}; slope: ${site.slopePct == null ? "unknown" : site.slopePct + "%"}; rain: ${site.annualRainIn == null ? "unknown" : site.annualRainIn + " in/year"}`);
   const air = airportMinutes(site, s);
   lines.push(`Nearest airport: ${air == null ? "unknown" : `${site.nearestAirport}, about ${Math.round(air)} min`}`);
   if (site.internet) {
@@ -225,12 +240,14 @@ function summaryText(parcel, s) {
 /* ---- groundwater ---- */
 
 // "about 85 ft below ground (well 3.2 mi away, measured 2024-03-05)" for the nearest well, or why there is none.
+// Old readings say how old they are, because many wells have not been measured in decades.
 function groundwaterText(gw) {
   if (gw === undefined) return "not looked up";
   if (gw === null) return "no data";
-  if (!gw.wells.length) return `no monitoring well with a recent reading within about ${gw.searchedMiles} miles`;
+  if (!gw.wells.length) return `no USGS monitoring well with a depth reading within about ${gw.searchedMiles} miles`;
   const w = gw.wells[0];
-  return `about ${w.depthFt} ft below ground (well ${w.distanceMiles} mi away, measured ${w.measured})`;
+  const age = w.yearsAgo >= 2 ? `, ${w.yearsAgo} years ago` : "";
+  return `about ${w.depthFt} ft below ground (well ${w.distanceMiles} mi away, measured ${w.measured}${age})`;
 }
 
 /* ---- hover help (the table is GLOSSARY in config.js) ---- */
@@ -430,7 +447,7 @@ function buildComparison(items, s) {
   const usda = items.map((it) => site(it).usda);
   row("USDA loan area", usda.map((u) => (u ? (u.eligibleArea ? 1 : 0) : null)), usda.map((u) => (u === undefined ? "not looked up" : u === null ? "no data" : (u.eligibleArea ? "Yes" : "No"))), "larger");
   row("Acres", items.map((it) => it.parcel.acres), items.map((it) => it.parcel.acres ?? "?"));
-  row("Flood zone", items.map(() => null), items.map((it) => site(it).floodZone || "unknown"));
+  row("In a flood zone?", items.map(() => null), items.map((it) => floodAnswer(site(it).floodZone).text));
   row("Septic suitability", items.map(() => null), items.map((it) => site(it).septicRating || "unknown"));
   row("Slope", items.map((it) => site(it).slopePct ?? null), items.map((it) => (site(it).slopePct == null ? "unknown" : site(it).slopePct + "%")), "smaller");
   row("Rain per year", items.map(() => null), items.map((it) => (site(it).annualRainIn == null ? "unknown" : site(it).annualRainIn + " in")));
@@ -509,7 +526,6 @@ function scoreParcel(parcel, s) {
   const site = parcel.site || {};
   const hunting = s.huntingCounties.map(parseCountyEntry);
   const parts = {
-    flood: scoreFlood(site.floodZone),
     septic: site.septicRating in SEPTIC_SCORES ? SEPTIC_SCORES[site.septicRating] : null,
     slope: site.slopePct == null ? null : linearScore(site.slopePct, s.slopeIdeal, s.slopeMax),
     rain: site.annualRainIn == null ? null : linearScore(site.annualRainIn, s.rainFull, s.rainZero),
@@ -524,14 +540,14 @@ function scoreParcel(parcel, s) {
   for (const [name, value] of Object.entries(parts)) {
     if (value == null) continue;               // missing data is skipped, not counted as zero
     scored += 1;
-    weightSum += s.weights[name];
-    weighted += value * s.weights[name];
+    weightSum += s.points[name];
+    weighted += value * s.points[name];
   }
   return {
     total: weightSum === 0 ? null : Math.round(weighted / weightSum * 10) / 10,
     parts,
     factorsScored: scored,
     factorsTotal: Object.keys(parts).length,
-    dealbreakers: findDealbreakers(parcel, s),
+    dealbreakers: findDealbreakers(parcel, s, parts),
   };
 }
