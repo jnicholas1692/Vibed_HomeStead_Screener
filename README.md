@@ -106,6 +106,7 @@ npm test
 
 - **v2.0.0** Scoring is a 10-point skill tree with a dealbreaker switch on every criterion; flood zone is a Yes or No instead of a score; Settings has Scoring, Costs and loans, and Report layout tabs; the Save, Reset and Close buttons (and the Add and Compare buttons) stay pinned at the top
 - **v2.0.1** Groundwater now uses the new USGS Water Data API (the old service was retired); it shows the nearest wells with their last measurement date and age, and warns when all readings are over 10 years old
+- **v2.0.2** The main page links to the GitHub repository
 - **v1.9.1** Drag the report sections into order in Settings (Up and Down still work)
 - **v1.9.0** Down payment in dollars; asking price next to the name in the list; 30-year conventional and FHA payments beside your land loan; a USDA loan area Yes or No from USDA's eligibility map
 - **v1.8.0** Edit a parcel's name, address, location, acres and price after adding it; choose the order of the report sections in Settings (the Criteria button is now Settings)

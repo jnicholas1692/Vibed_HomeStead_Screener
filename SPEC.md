@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v2.0.1.
+> Last updated for v2.0.2.
 
 ## 1. Problem
 

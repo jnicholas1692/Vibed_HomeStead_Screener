@@ -253,3 +253,6 @@
 .node-deal { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--muted); }
 .node-deal input { width: auto; }
 .flood-node { background: var(--bg); }
+
+  .brand .repo-link { font-size: 0.8rem; }
+  .brand .repo-link a { color: var(--accent, inherit); }
