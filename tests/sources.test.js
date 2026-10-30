@@ -1060,3 +1060,18 @@ test("suggestions: a server error is thrown so the page can say so", async () =>
   const app = loadScripts(["config.js", "sources.js"], { fetch: fakeFetch({ "photon.komoot.io": { status: 503, body: "" } }) });
   await assert.rejects(() => app.get("suggestAddresses")("oak st"));
 });
+
+// ---- report section order ----
+test("report order: unknown and repeated names are dropped, missing ones go last", () => {
+  const norm = pure.get("normalizeReportOrder");
+  const all = plain(pure.get("REPORT_SECTIONS")).map((x) => x[0]);
+  assert.deepEqual(plain(norm(["cost", "bogus", "cost", "roads"])).slice(0, 2), ["cost", "roads"]);
+  assert.equal(plain(norm(["cost", "bogus", "cost", "roads"])).length, all.length);
+  assert.deepEqual(plain(norm(undefined)), all);
+  assert.deepEqual(plain(norm("nope")), all);
+});
+
+test("report order: the default order lists every section once", () => {
+  const defaults = plain(pure.get("DEFAULT_SETTINGS.reportOrder"));
+  assert.deepEqual([...defaults].sort(), plain(pure.get("REPORT_SECTIONS")).map((x) => x[0]).sort());
+});

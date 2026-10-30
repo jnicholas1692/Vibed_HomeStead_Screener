@@ -383,12 +383,73 @@ function openDetail(id) {
       ? `${site.nearestAirport}, ${site.airportRoadMiles} mi by road (about ${site.airportDriveMin} min drive, from a road route)`
       : `${site.nearestAirport}, ${site.airportMiles} mi straight line (about ${Math.round(driveMinutes(site.airportMiles, settings))} min drive, estimated)`;
   }
+  // Each report section as its own piece, so the order can follow your settings.
+  const sections = {
+    data: `
+      <h3>What the data says</h3>
+      <div class="kv">
+        ${kv("Coordinates", `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`)}
+        ${kv("FEMA flood zone", esc(site.floodZone || "unknown (not mapped or lookup failed)"))}
+        ${kv("Elevation", site.elevationFt != null ? `${site.elevationFt} ft` : "?")}
+        ${kv("Slope (steepest of 4 directions)", site.slopePct != null ? `${site.slopePct}%` : "?")}
+        ${kv("Soil", esc(site.soilName || "?"))}
+        ${kv("Drainage class", esc(site.drainageClass || "?"))}
+        ${kv("Septic rating", esc(site.septicRating || "?"))}
+        ${kv("Average yearly rain", site.annualRainIn != null ? `${site.annualRainIn} in` : "?")}
+        ${kv("Nearest airport", esc(drive))}
+        ${kv("Plant hardiness zone", site.hardiness ? `${esc(hardinessText(site.hardiness))} <span class="sub">by ZIP ${esc(site.hardiness.zip)}, USDA ${esc(site.hardiness.vintage)} map</span>` : (site.hardiness === undefined ? "not looked up yet" : "?"))}
+        ${kv("Data fetched", p.fetchedAt ? esc(new Date(p.fetchedAt).toLocaleString()) : "never")}
+      </div>
+      <p class="source">Sources for this table: ${["county", "flood", "elevation", "soil", "rain", "airport", "hardiness"].filter((k) => sourceKeysUsed(p).includes(k)).map((k) => `${esc(DATA_SOURCES[k].label)}: ${DATA_SOURCES[k].url ? `<a href="${esc(DATA_SOURCES[k].url)}" target="_blank" rel="noopener">${esc(DATA_SOURCES[k].name)}</a>` : esc(DATA_SOURCES[k].name)}, ${esc(sourceVintage(k, site))}`).join("; ")}.</p>`,
+    internet: `
+      <h3>Internet</h3>
+      ${internetHtml(site.internet)}
+      ${sourceHtml("internet", site)}`,
+    places: `
+      <h3>Nearby</h3>
+      ${placesHtml(site.places)}
+      ${sourceHtml("places", site)}`,
+    publicLand: `
+      <h3>Public and protected land</h3>
+      ${publicLandHtml(site.publicLand)}
+      ${sourceHtml("publicLand", site)}`,
+    groundwater: `
+      <h3>Groundwater</h3>
+      ${groundwaterHtml(site.groundwater)}
+      ${sourceHtml("groundwater", site)}`,
+    wetlands: `
+      <h3>Wetlands</h3>
+      ${wetlandsHtml(site.wetlands)}
+      ${sourceHtml("wetlands", site)}`,
+    roads: `
+      <h3>Road access</h3>
+      ${roadsHtml(site.roads)}
+      ${sourceHtml("roads", site)}`,
+    climate: `
+      <h3>Climate and solar</h3>
+      ${climateHtml(site.climate, site.solar)}
+      ${sourceHtml("climate", site)}`,
+    soilDetails: `
+      <h3>Soil details</h3>
+      ${soilDetailsHtml(site.soilDetails)}
+      ${sourceHtml("soilDetails", site)}`,
+    hazards: `
+      <h3>Natural hazards</h3>
+      ${hazardsHtml(site.hazards)}
+      ${sourceHtml("hazards", site)}`,
+    cost: `
+      <h3>Rough cost</h3>
+      ${costHtml(p)}
+      ${sourceHtml("costs", site)}${p.site && p.site.taxRate && p.site.taxRate.ratePct != null ? sourceHtml("taxRate", site) : ""}`,
+  };
+  const orderedSections = normalizeReportOrder(settings.reportOrder).map((key) => sections[key]).join("");
   $("detail").innerHTML = `
     <div class="dlg-bar no-print">
       <div class="bar-group">
         <button class="btn small" type="button" data-refresh="${esc(p.id)}"${busy ? " disabled" : ""}>${busy ? "Looking up..." : "Refresh data"}</button>
         <button class="btn small" type="button" data-print>Print</button>
         <button class="btn small" type="button" data-copy-summary="${esc(p.id)}">Copy summary</button>
+        <button class="btn small" type="button" data-edit="${esc(p.id)}"${busy ? " disabled" : ""}>Edit</button>
       </div>
       <div class="bar-group">
         <button class="btn small primary" type="button" data-save-notes="${esc(p.id)}">Save notes</button>
@@ -407,51 +468,7 @@ function openDetail(id) {
       <div class="score-line"><span class="big">${scoreText(score.total)}</span><span class="sub">score &middot; ${score.factorsScored} of ${score.factorsTotal} factors had data</span></div>
       <div class="table-scroll"><table><thead><tr><th>Factor</th><th class="num">Score</th><th></th><th class="num">Weight</th></tr></thead><tbody>${factorRows}</tbody></table></div>
       ${!busy && p.errors && p.errors.length ? `<p class="notice">Some lookups failed, so the score is partial: ${esc(p.errors.join("; "))}. Use Refresh data to try again.</p>` : ""}
-      <h3>What the data says</h3>
-      <div class="kv">
-        ${kv("Coordinates", `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`)}
-        ${kv("FEMA flood zone", esc(site.floodZone || "unknown (not mapped or lookup failed)"))}
-        ${kv("Elevation", site.elevationFt != null ? `${site.elevationFt} ft` : "?")}
-        ${kv("Slope (steepest of 4 directions)", site.slopePct != null ? `${site.slopePct}%` : "?")}
-        ${kv("Soil", esc(site.soilName || "?"))}
-        ${kv("Drainage class", esc(site.drainageClass || "?"))}
-        ${kv("Septic rating", esc(site.septicRating || "?"))}
-        ${kv("Average yearly rain", site.annualRainIn != null ? `${site.annualRainIn} in` : "?")}
-        ${kv("Nearest airport", esc(drive))}
-        ${kv("Plant hardiness zone", site.hardiness ? `${esc(hardinessText(site.hardiness))} <span class="sub">by ZIP ${esc(site.hardiness.zip)}, USDA ${esc(site.hardiness.vintage)} map</span>` : (site.hardiness === undefined ? "not looked up yet" : "?"))}
-        ${kv("Data fetched", p.fetchedAt ? esc(new Date(p.fetchedAt).toLocaleString()) : "never")}
-      </div>
-      <p class="source">Sources for this table: ${["county", "flood", "elevation", "soil", "rain", "airport", "hardiness"].filter((k) => sourceKeysUsed(p).includes(k)).map((k) => `${esc(DATA_SOURCES[k].label)}: ${DATA_SOURCES[k].url ? `<a href="${esc(DATA_SOURCES[k].url)}" target="_blank" rel="noopener">${esc(DATA_SOURCES[k].name)}</a>` : esc(DATA_SOURCES[k].name)}, ${esc(sourceVintage(k, site))}`).join("; ")}.</p>
-      <h3>Internet</h3>
-      ${internetHtml(site.internet)}
-      ${sourceHtml("internet", site)}
-      <h3>Nearby</h3>
-      ${placesHtml(site.places)}
-      ${sourceHtml("places", site)}
-      <h3>Public and protected land</h3>
-      ${publicLandHtml(site.publicLand)}
-      ${sourceHtml("publicLand", site)}
-      <h3>Groundwater</h3>
-      ${groundwaterHtml(site.groundwater)}
-      ${sourceHtml("groundwater", site)}
-      <h3>Wetlands</h3>
-      ${wetlandsHtml(site.wetlands)}
-      ${sourceHtml("wetlands", site)}
-      <h3>Road access</h3>
-      ${roadsHtml(site.roads)}
-      ${sourceHtml("roads", site)}
-      <h3>Climate and solar</h3>
-      ${climateHtml(site.climate, site.solar)}
-      ${sourceHtml("climate", site)}
-      <h3>Soil details</h3>
-      ${soilDetailsHtml(site.soilDetails)}
-      ${sourceHtml("soilDetails", site)}
-      <h3>Natural hazards</h3>
-      ${hazardsHtml(site.hazards)}
-      ${sourceHtml("hazards", site)}
-      <h3>Rough cost</h3>
-      ${costHtml(p)}
-      ${sourceHtml("costs", site)}${p.site && p.site.taxRate && p.site.taxRate.ratePct != null ? sourceHtml("taxRate", site) : ""}
+      ${orderedSections}
       <h3>Data sources</h3>
       ${sourcesFooterHtml(sourceKeysUsed(p), site, p.fetchedAt)}
       <h3>Your notes</h3>
@@ -569,6 +586,32 @@ async function addParcelFromForm(event) {
     if (!(lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180)) return fail("Coordinates are out of range.");
     if (!inUnitedStates(lat, lon)) return fail("That spot looks outside the United States, and these data sources only cover the US. Check the latitude and longitude (US longitudes are negative).");
 
+    if (editingId) {
+      const existing = parcels.find((x) => x.id === editingId);
+      if (!existing) { editingId = null; $("dlg-add").close(); return; }
+      // Moving the pin makes every looked-up value wrong, so the data is cleared and fetched again.
+      const moved = Math.abs(existing.lat - lat) > 1e-6 || Math.abs(existing.lon - lon) > 1e-6;
+      existing.name = name; existing.address = address || null; existing.acres = acres; existing.askingPrice = price;
+      if (moved) { existing.lat = lat; existing.lon = lon; existing.county = null; existing.site = {}; existing.errors = []; existing.fetchedAt = null; }
+      saveParcels();
+      renderAll();
+      const id = editingId;
+      editingId = null;
+      setAddFormMode(false);
+      $("form-add").reset();
+      closeSuggestions();
+      nameFromAddress = true;
+      coordsFromSuggestion = false;
+      $("dlg-add").close();
+      if (moved) {
+        const lookups = runLookups(existing);
+        openDetail(id);
+        await lookups;
+      } else {
+        openDetail(id);
+      }
+      return;
+    }
     const parcel = { id: newId(), name, address: address || null, lat, lon, county: null, acres, askingPrice: price,
       status: "new", notes: "", createdAt: new Date().toISOString(), site: {}, errors: [], fetchedAt: null };
     parcels.push(parcel);
@@ -584,9 +627,66 @@ async function addParcelFromForm(event) {
     await lookups;
   } finally {
     button.disabled = false;
-    button.textContent = "Add and look up data";
+    button.textContent = editingId ? "Save changes" : "Add and look up data";
   }
 }
+
+/* ---- editing a parcel: the Add window, filled in with the parcel's values ---- */
+let editingId = null;   // the parcel being edited, or null when the window is adding a new one
+
+// Switches the Add window between "add" and "edit" wording.
+function setAddFormMode(editing) {
+  $("add-title").textContent = editing ? "Edit parcel" : "Add a parcel";
+  $("btn-save").textContent = editing ? "Save changes" : "Add and look up data";
+  $("btn-demo").hidden = editing;
+  $("edit-hint").hidden = !editing;
+}
+
+function openEdit(id) {
+  const p = parcels.find((x) => x.id === id);
+  if (!p || lookingId === id) return;
+  closeSuggestions();
+  editingId = id;
+  setAddFormMode(true);
+  $("f-name").value = p.name;
+  $("f-address").value = p.address || "";
+  $("f-lat").value = String(p.lat);
+  $("f-lon").value = String(p.lon);
+  $("f-acres").value = p.acres ?? "";
+  $("f-price").value = p.askingPrice ?? "";
+  nameFromAddress = !p.name || p.name === p.address;
+  coordsFromSuggestion = false;
+  $("add-error").hidden = true;
+  $("dlg-detail").close();   // the map pick needs the page visible, so the report steps aside while editing
+  $("dlg-add").showModal();
+}
+
+// Opening the window to add a parcel after editing one starts from an empty form.
+function openAdd() {
+  if (editingId) {
+    editingId = null;
+    $("form-add").reset();
+    nameFromAddress = true;
+    coordsFromSuggestion = false;
+  }
+  setAddFormMode(false);
+  $("add-error").hidden = true;
+  $("dlg-add").showModal();
+}
+
+// Closing the edit window without saving goes back to the report. (Choosing a spot on the map also
+// closes it for a moment; pickMode tells the two apart.)
+$("dlg-add").addEventListener("close", () => {
+  if (editingId && !pickMode) {
+    const id = editingId;
+    editingId = null;
+    setAddFormMode(false);
+    $("form-add").reset();   // do not leave this parcel's values behind for the next "Add"
+    nameFromAddress = true;
+    coordsFromSuggestion = false;
+    openDetail(id);
+  }
+});
 
 function loadDemo() {
   // Every value here is invented, only to show what the app looks like.
@@ -722,6 +822,31 @@ function setPath(obj, path, value) {
   keys.reduce((o, k) => o[k], obj)[last] = value;
 }
 
+let orderDraft = [];   // the report order being edited in the settings window; saved with the Save button
+
+function renderOrderList(focus) {
+  const label = Object.fromEntries(REPORT_SECTIONS);
+  $("c-order-list").innerHTML = orderDraft.map((key, i) => `<li>
+      <span class="order-name">${esc(label[key])}</span>
+      <button class="btn small" type="button" data-move="up" data-key="${key}" aria-label="Move ${esc(label[key])} up"${i === 0 ? " disabled" : ""}>Up</button>
+      <button class="btn small" type="button" data-move="down" data-key="${key}" aria-label="Move ${esc(label[key])} down"${i === orderDraft.length - 1 ? " disabled" : ""}>Down</button>
+    </li>`).join("");
+  // Keep the keyboard focus on the button that was just used, or on its partner if it is now disabled.
+  if (focus) {
+    const wanted = $("c-order-list").querySelector(`button[data-key="${focus.key}"][data-move="${focus.dir}"]:not(:disabled)`)
+      || $("c-order-list").querySelector(`button[data-key="${focus.key}"]:not(:disabled)`);
+    if (wanted) wanted.focus();
+  }
+}
+
+function moveSection(key, dir) {
+  const i = orderDraft.indexOf(key);
+  const j = dir === "up" ? i - 1 : i + 1;
+  if (i < 0 || j < 0 || j >= orderDraft.length) return;
+  [orderDraft[i], orderDraft[j]] = [orderDraft[j], orderDraft[i]];
+  renderOrderList({ key, dir });
+}
+
 function openCriteria() {
   $("criteria-fields").innerHTML = `<p class="hint wide">These are starting points, not rules. Rainfall, price and slope that count as good vary a lot across the US (for example, 15 inches of rain a year is dry in Georgia but normal in Nevada), so set them for the region you are searching.</p>`
     + CRITERIA_FIELDS.map(([label, path]) =>
@@ -742,7 +867,15 @@ function openCriteria() {
        <label>Add a preset airport
          <select id="c-airport-preset"><option value="">Choose one to add it to the list...</option>${
            AIRPORT_PRESETS.map((a, i) => `<option value="${i}">${esc(a.name)}</option>`).join("")}</select></label>
+     </div>
+     <div class="wide stack" id="c-order-block">
+       <strong>Order of the report sections</strong>
+       <p class="hint">The score and factor table always come first, and the data sources and your notes always come last. Use Up and Down to arrange everything between them. The change applies to the report on screen and to the printout.</p>
+       <ol class="order-list" id="c-order-list"></ol>
+       <div><button class="btn small" type="button" id="c-order-reset">Reset to the default order</button></div>
      </div>`;
+  orderDraft = normalizeReportOrder(settings.reportOrder);
+  renderOrderList();
   $("c-airport-mode").value = settings.airportMode;
   $("criteria-error").hidden = true;
   $("dlg-criteria").showModal();
@@ -783,6 +916,7 @@ function saveCriteria(event) {
   }
   next.huntingCounties = $("c-hunting").value.split(",").map((c) => c.trim().replace(/\s+county\b/i, "")).filter(Boolean);
   next.censusKey = $("c-census-key").value.trim();
+  next.reportOrder = normalizeReportOrder(orderDraft);
   next.costs.useCountyTax = $("c-use-county-tax").checked;
   next.airportMode = $("c-airport-mode").value;
   const airportResult = parseAirports($("c-airports").value);
@@ -797,6 +931,7 @@ function saveCriteria(event) {
   recomputeAirports();
   $("dlg-criteria").close();
   renderAll();
+  liveRender();   // an open report picks up the new section order
 }
 
 /* =====================================================================
@@ -844,7 +979,7 @@ $("dlg-detail").addEventListener("close", () => { detailId = null; });
 
 document.addEventListener("click", (event) => {
   if (event.target.closest("[data-compare]")) return;   // a Pick box must not also open the parcel
-  const el = event.target.closest("[data-open],[data-close],[data-refresh],[data-delete],[data-save-notes],[data-print],[data-copy-summary]");
+  const el = event.target.closest("[data-open],[data-close],[data-refresh],[data-delete],[data-edit],[data-save-notes],[data-print],[data-copy-summary]");
   if (!el) return;
   if (el.dataset.print !== undefined) window.print();
   else if (el.dataset.copySummary) copySummary(el.dataset.copySummary);
@@ -852,6 +987,7 @@ document.addEventListener("click", (event) => {
   else if (el.dataset.open) openDetail(el.dataset.open);
   else if (el.dataset.refresh) refreshParcel(el.dataset.refresh);
   else if (el.dataset.delete) deleteParcel(el.dataset.delete);
+  else if (el.dataset.edit) openEdit(el.dataset.edit);
   else if (el.dataset.saveNotes) saveNotes(el.dataset.saveNotes);
 });
 
@@ -956,12 +1092,17 @@ $("f-name").addEventListener("input", () => { nameFromAddress = $("f-name").valu
 for (const id of ["f-lat", "f-lon"]) $(id).addEventListener("input", () => { coordsFromSuggestion = false; });
 $("dlg-add").addEventListener("close", closeSuggestions);
 
-$("btn-add").addEventListener("click", () => { $("add-error").hidden = true; $("dlg-add").showModal(); });
+$("btn-add").addEventListener("click", openAdd);
 $("btn-pick").addEventListener("click", startPick);
 $("btn-demo").addEventListener("click", loadDemo);
 $("form-add").addEventListener("submit", addParcelFromForm);
 $("btn-criteria").addEventListener("click", openCriteria);
 $("form-criteria").addEventListener("submit", saveCriteria);
+$("criteria-fields").addEventListener("click", (event) => {
+  const move = event.target.closest("[data-move]");
+  if (move) { moveSection(move.dataset.key, move.dataset.move); return; }
+  if (event.target.id === "c-order-reset") { orderDraft = normalizeReportOrder([]); renderOrderList(); }
+});
 // Choosing a preset airport adds its line to the text box.
 $("criteria-fields").addEventListener("change", (event) => {
   if (event.target.id === "c-airport-mode") {

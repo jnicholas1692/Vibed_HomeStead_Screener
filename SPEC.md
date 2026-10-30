@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v1.7.0.
+> Last updated for v1.8.0.
 
 ## 1. Problem
 
@@ -67,6 +67,8 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R30 | Clear data | A Clear data button erases the parcels, criteria and map view this app saved in the browser, after a second click to confirm | `fix/lighter-places-and-clear-data` |
 | R31 | Address suggestions | Typing 4 or more characters in the Address box shows up to six US suggestions (street, city, state, ZIP) from OpenStreetMap through photon.komoot.io, after a short pause in typing; arrow keys, Enter, Escape or a click pick one; picking fills the latitude and longitude unless the person typed their own; editing the address afterwards clears coordinates a suggestion filled; if the service is down the box says so and typing still works | `feature/address-suggest` |
 | R32 | Name defaults to the address | The Name box follows the address until the person types their own name; leaving the name blank saves the address as the name | `feature/address-suggest` |
+| R33 | Edit a parcel | An Edit button in the report opens the Add window filled in with the parcel's name, address, coordinates, acres and price; saving updates the list, score and cost; changing the coordinates clears the looked-up data and fetches it again; closing without saving returns to the report unchanged | `feature/edit-and-order` |
+| R34 | Report section order | Settings has Up and Down buttons for the 11 middle sections of the report (the score and factors stay first, the data sources and notes stay last); the order is saved in the browser, applies to the report and printout, and sections missing from a saved order are added at the end | `feature/edit-and-order` |
 
 ## 5. Scoring rules
 
@@ -125,7 +127,7 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 
 ## 10. Testing
 
-- 100 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
+- 102 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
 - A browser test script with mocked services was used during development and is not part of the repository.
 - Live checks against real services are manual (see the tutorial).
 

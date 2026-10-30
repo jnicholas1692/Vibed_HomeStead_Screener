@@ -33,6 +33,7 @@ function loadSettings() {
     ...DEFAULT_SETTINGS, ...saved,
     weights: { ...DEFAULT_SETTINGS.weights, ...(saved.weights || {}) },
     costs: { ...DEFAULT_SETTINGS.costs, ...(saved.costs || {}) },
+    reportOrder: normalizeReportOrder(saved.reportOrder),
     huntingCounties: Array.isArray(saved.huntingCounties) ? saved.huntingCounties : [],
     censusKey: typeof saved.censusKey === "string" ? saved.censusKey : "",
     // Your own airport list is only used if you chose "custom" and the list is not empty.

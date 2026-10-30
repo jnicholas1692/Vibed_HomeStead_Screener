@@ -24,7 +24,30 @@ const DEFAULT_SETTINGS = {
   // "auto" uses the nearest airport in AIRPORT_PRESETS (all of the US). "custom" uses only your own list below.
   airportMode: "auto",
   airports: [],
+  // The order of the sections in a parcel's report (keys from REPORT_SECTIONS).
+  reportOrder: ["data", "internet", "places", "publicLand", "groundwater", "wetlands", "roads", "climate", "soilDetails", "hazards", "cost"],
 };
+
+// The report sections you can reorder. The score and factor table always come first,
+// and the data sources and your notes always come last.
+const REPORT_SECTIONS = [
+  ["data", "What the data says"], ["internet", "Internet"], ["places", "Nearby"],
+  ["publicLand", "Public and protected land"], ["groundwater", "Groundwater"], ["wetlands", "Wetlands"],
+  ["roads", "Road access"], ["climate", "Climate and solar"], ["soilDetails", "Soil details"],
+  ["hazards", "Natural hazards"], ["cost", "Rough cost"],
+];
+
+// Cleans up a saved section order: unknown or repeated names are dropped, and any section
+// the saved list is missing (for example one added in a newer version) goes at the end.
+function normalizeReportOrder(saved) {
+  const known = REPORT_SECTIONS.map(([key]) => key);
+  const order = [];
+  for (const key of Array.isArray(saved) ? saved : []) {
+    if (known.includes(key) && !order.includes(key)) order.push(key);
+  }
+  for (const key of known) if (!order.includes(key)) order.push(key);
+  return order;
+}
 
 // How the list is sorted and filtered when you first open the page.
 const DEFAULT_VIEW = { sort: "score", status: "all", hideDealbreakers: false };

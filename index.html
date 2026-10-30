@@ -16,7 +16,7 @@
     </div>
     <div class="toolbar">
       <button class="btn primary" id="btn-add" type="button">Add parcel</button>
-      <button class="btn" id="btn-criteria" type="button">Criteria</button>
+      <button class="btn" id="btn-criteria" type="button">Settings</button>
       <button class="btn" id="btn-export" type="button">Export</button>
       <button class="btn" id="btn-import" type="button">Import</button>
       <button class="btn danger" id="btn-clear" type="button">Clear data</button>
@@ -75,13 +75,14 @@
             <ul id="address-list" class="suggest-list" role="listbox" hidden></ul>
           </span>
         </label>
-        <p class="hint wide" id="address-hint">Suggestions come from OpenStreetMap through photon.komoot.io, so the text you type here is sent to that service. Picking one fills in the latitude and longitude too. You can also type a whole address and leave the rest blank.</p>
+        <p class="hint wide" id="address-hint">Suggestions come from OpenStreetMap through photon.komoot.io, so the text you type here is sent to that service. Picking one fills in the latitude and longitude when they are empty. You can also type a whole address and leave the rest blank.</p>
         <label>Latitude <input id="f-lat" inputmode="decimal" placeholder="30.27500"></label>
         <label>Longitude <input id="f-lon" inputmode="decimal" placeholder="-98.40000"></label>
         <label>Acres <input id="f-acres" inputmode="decimal"></label>
         <label>Asking price (USD) <input id="f-price" inputmode="decimal"></label>
       </div>
       <div><button class="btn" id="btn-pick" type="button">Pick location on the map</button></div>
+      <p class="hint" id="edit-hint" hidden>Changing the address only changes its label. To move the parcel, change the latitude and longitude or pick a new spot on the map; its data is then looked up again. Changing the name, acres or price keeps the data and updates the score and cost.</p>
       <p class="hint">Rural land often has no street address. Pick the spot on the map, or copy coordinates from a map app (right-click a spot in Google Maps and click the numbers).</p>
       <p class="err" id="add-error" role="alert" hidden></p>
     </div>
@@ -101,13 +102,13 @@
 <!-- Criteria -->
 <dialog id="dlg-criteria" aria-labelledby="criteria-title">
   <form id="form-criteria" method="dialog">
-    <div class="dlg-head"><h2 id="criteria-title">Your criteria</h2><button class="btn small" type="button" data-close>Close</button></div>
+    <div class="dlg-head"><h2 id="criteria-title">Settings</h2><button class="btn small" type="button" data-close>Close</button></div>
     <div class="dlg-body">
       <p class="hint">Weights say how much each factor matters. Factors with no data are skipped, not counted as zero. Scores update when you save.</p>
       <div class="fields" id="criteria-fields"></div>
       <p class="err" id="criteria-error" role="alert" hidden></p>
     </div>
-    <div class="dlg-foot"><button class="btn" type="button" id="btn-reset-criteria">Reset to defaults</button><button class="btn primary" type="submit">Save criteria</button></div>
+    <div class="dlg-foot"><button class="btn" type="button" id="btn-reset-criteria">Reset to defaults</button><button class="btn primary" type="submit">Save settings</button></div>
   </form>
 </dialog>
 
