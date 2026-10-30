@@ -265,3 +265,44 @@ test("every label the report shows has a hover explanation", () => {
   const missing = [...labels].filter((label) => !glossary[label]);
   assert.deepEqual(missing, []);
 });
+
+// ---- home loan options and USDA ----
+test("home loans: conventional and FHA payments for a $100,000 home with $20,000 down", () => {
+  const est = plain(app.get("estimateCosts")({ askingPrice: 100000, site: {} }, defaults()));
+  const { conventional: conv, fha } = est.homeLoans;
+  assert.equal(conv.downPayment, 20000);
+  assert.equal(conv.borrowed, 80000);
+  assert.equal(conv.insurance, 0);                          // 20% down, so no private mortgage insurance
+  assert.ok(Math.abs(conv.pi - 548.5) < 1);                 // $80,000 at 7.3% over 30 years
+  assert.equal(fha.downPayment, 20000);
+  assert.equal(fha.upfrontInsurance, 1400);                 // 1.75% of $80,000
+  assert.equal(fha.borrowed, 81400);
+  assert.ok(Math.abs(fha.insurance - 36.67) < 0.01);        // 0.55% of $80,000 a year
+  assert.ok(fha.insuranceNote.includes("11 years"));        // 10% or more down
+  assert.ok(Math.abs(conv.total - (conv.pi + conv.insurance + 83.33 + 40)) < 0.01);
+});
+
+test("home loans: a small down payment is raised to each loan's minimum and adds insurance", () => {
+  const s = defaults(); s.costs.downPayment = 1000;
+  const { conventional: conv, fha } = plain(app.get("estimateCosts")({ askingPrice: 100000, site: {} }, s)).homeLoans;
+  assert.equal(conv.downPayment, 3000); assert.ok(conv.raisedToMinimum); assert.ok(conv.insurance > 0);
+  assert.equal(fha.downPayment, 3500); assert.ok(fha.raisedToMinimum);
+  assert.ok(fha.insuranceNote.includes("whole loan"));      // under 10% down
+});
+
+test("home loans: a down payment bigger than the price is capped, and the FHA limit floor is flagged", () => {
+  const s = defaults(); s.costs.downPayment = 500000;
+  const est = plain(app.get("estimateCosts")({ askingPrice: 100000, site: {} }, s));
+  assert.equal(est.downPayment, 100000);
+  assert.equal(est.monthly.loan, 0);
+  assert.equal(est.homeLoans.fha.borrowed, 0);
+  const big = defaults(); big.costs.downPayment = 0;
+  assert.ok(plain(app.get("estimateCosts")({ askingPrice: 900000, site: {} }, big)).homeLoans.fha.overLimit);
+});
+
+test("USDA loan area text and the comparison row", () => {
+  assert.equal(app.get("usdaText")({ eligibleArea: true }), "Yes");
+  assert.equal(app.get("usdaText")({ eligibleArea: false }), "No");
+  assert.equal(app.get("usdaText")(null), "?");
+  assert.equal(app.get("usdaText")(undefined), "not looked up");
+});

@@ -97,6 +97,46 @@ function loanPayment(principal, ratePct, years) {
   return r === 0 ? principal / months : principal * r / (1 - Math.pow(1 + r, -months));
 }
 
+// Monthly numbers for a 30-year conventional loan and a 30-year FHA loan at this price. `taxAndInsurance` is the
+// property tax plus homeowner insurance per month. Your down payment is used unless it is below the loan's
+// minimum, in which case the minimum is used and `raisedToMinimum` is true. All rates come from your settings.
+// Banks do not make FHA or conventional loans on bare land; these show what a home purchase at this price would cost.
+function homeLoanOptions(price, c, taxAndInsurance) {
+  const chosen = Math.max(0, Number(c.downPayment) || 0);
+  const pick = (minPct) => {
+    const minimum = price * minPct / 100;
+    return { down: Math.min(price, Math.max(chosen, minimum)), raisedToMinimum: chosen < minimum, minimum };
+  };
+
+  const conv = pick(LOAN_RULES.conventionalMinDownPct);
+  const convLoan = price - conv.down;
+  const needsPmi = convLoan > 0 && conv.down < price * LOAN_RULES.conventionalNoPmiDownPct / 100;
+  const convPi = loanPayment(convLoan, c.conventionalRatePct, LOAN_RULES.years);
+  const convMi = needsPmi ? convLoan * c.pmiPct / 100 / 12 : 0;
+
+  const fha = pick(LOAN_RULES.fhaMinDownPct);
+  const fhaBase = price - fha.down;
+  const upfront = fhaBase * c.fhaUpfrontPct / 100;       // added to the loan at closing
+  const fhaBorrowed = fhaBase + upfront;
+  const fhaPi = loanPayment(fhaBorrowed, c.fhaRatePct, LOAN_RULES.years);
+  const fhaMi = fhaBase * c.fhaAnnualPct / 100 / 12;
+  const fhaMipYears = fha.down >= price * LOAN_RULES.fhaLongMipDownPct / 100 ? 11 : LOAN_RULES.years;
+
+  return {
+    conventional: {
+      downPayment: conv.down, raisedToMinimum: conv.raisedToMinimum, minimumDown: conv.minimum, borrowed: convLoan, ratePct: c.conventionalRatePct,
+      pi: convPi, insurance: convMi, insuranceNote: needsPmi ? "private mortgage insurance, until you owe 80% or less of the home's value" : "none at 20% down or more",
+      total: convPi + convMi + taxAndInsurance,
+    },
+    fha: {
+      downPayment: fha.down, raisedToMinimum: fha.raisedToMinimum, minimumDown: fha.minimum, borrowed: fhaBorrowed, upfrontInsurance: upfront, ratePct: c.fhaRatePct,
+      pi: fhaPi, insurance: fhaMi, insuranceNote: `FHA insurance, ${fhaMipYears >= LOAN_RULES.years ? "for the whole loan" : `for ${fhaMipYears} years`}`,
+      overLimit: fhaBase > LOAN_RULES.fhaLoanLimitFloor,
+      total: fhaPi + fhaMi + taxAndInsurance,
+    },
+  };
+}
+
 // Returns null when there is no price. Otherwise:
 // { downPayment, monthly: { loan, tax, insurance, total }, oneTime: { septic, well, total }, notes: [...] }
 // All the rates and prices come from your settings, so treat the output as a rough guide, not a quote.
@@ -104,7 +144,7 @@ function estimateCosts(parcel, s) {
   const price = parcel.askingPrice;
   if (price == null) return null;
   const c = s.costs;
-  const downPayment = price * c.downPct / 100;
+  const downPayment = Math.min(price, Math.max(0, Number(c.downPayment) || 0));
   const loan = loanPayment(price - downPayment, c.ratePct, c.years);
   // Use the county's typical rate when we have it (and you have not turned that off); otherwise your own setting.
   const county = (parcel.site || {}).taxRate;
@@ -123,6 +163,7 @@ function estimateCosts(parcel, s) {
   return {
     taxPct, taxSource: useCounty ? "county" : "setting",
     downPayment,
+    homeLoans: homeLoanOptions(price, c, tax + insurance),
     monthly: { loan, tax, insurance, total: loan + tax + insurance },
     oneTime: { septic, well: c.well, total: septic + c.well },
     notes,
@@ -159,6 +200,7 @@ function summaryText(parcel, s) {
     }
   }
   if (site.publicLand) lines.push(`Public and protected land (USGS PAD-US): ${publicLandText(site.publicLand)}`);
+  if (site.usda) lines.push(`USDA loan area: ${usdaText(site.usda)}`);
   if (site.wetlands) lines.push(`Wetlands (US Fish and Wildlife Service map, not a delineation): ${wetlandText(site.wetlands)}`);
   if (site.groundwater !== undefined && site.groundwater !== null) lines.push(`Groundwater (USGS monitoring wells, not your lot): ${groundwaterText(site.groundwater)}`);
   if (site.roads) lines.push(`Road access (OpenStreetMap, not proof of legal access): nearest road ${roadText(site.roads.nearest)}; nearest paved public road ${site.roads.nearestPublicPaved ? roadText(site.roads.nearestPublicPaved) : `none within ${distanceText(Math.round(site.roads.searchedMeters * 3.28084))}`}`);
@@ -171,6 +213,7 @@ function summaryText(parcel, s) {
   }
   const cost = estimateCosts(parcel, s);
   if (cost) lines.push(`Rough cost (placeholder rates): about ${money(cost.monthly.total)} a month, plus ${money(cost.oneTime.total)} one-time for septic and a well, and ${money(cost.downPayment)} down`);
+  if (cost) lines.push(`30-year home loan at this price (not for bare land): about ${money(cost.homeLoans.conventional.total)} a month conventional, ${money(cost.homeLoans.fha.total)} a month FHA, with your tax and insurance`);
   if (parcel.status && parcel.status !== "new") lines.push(`My status: ${parcel.status}`);
   if (parcel.notes) lines.push(`Notes: ${parcel.notes}`);
   lines.push(`Location: ${parcel.lat.toFixed(5)}, ${parcel.lon.toFixed(5)}  https://www.openstreetmap.org/?mlat=${parcel.lat.toFixed(5)}&mlon=${parcel.lon.toFixed(5)}#map=15/${parcel.lat.toFixed(5)}/${parcel.lon.toFixed(5)}`);
@@ -244,6 +287,7 @@ function sourceKeysUsed(parcel) {
   if (has(site.roads)) used.push("roads");
   if (has(site.wetlands)) used.push("wetlands");
   if (has(site.publicLand)) used.push("publicLand");
+  if (site.usda) used.push("usda");
   return used;
 }
 
@@ -305,6 +349,15 @@ function publicLandText(pl) {
   if (pl.withinMiles == null) return "none within 25 miles";
   const names = pl.areas.map((a) => `${a.name} (${a.manager}, ${a.access.toLowerCase()} access)`).join("; ");
   return pl.withinMiles === 0 ? `on protected land: ${names}` : `protected or public land within ${pl.withinMiles} miles: ${names}`;
+}
+
+/* ---- USDA loan area ---- */
+
+// "Yes", "No" or "?" for the list and the report.
+function usdaText(usda) {
+  if (usda === undefined) return "not looked up";
+  if (usda === null) return "?";
+  return usda.eligibleArea ? "Yes" : "No";
 }
 
 /* ---- wetlands ---- */
@@ -374,6 +427,8 @@ function buildComparison(items, s) {
   const costs = items.map((it) => estimateCosts(it.parcel, s));
   row("Rough monthly cost", costs.map((c) => (c ? c.monthly.total : null)), costs.map((c) => (c ? money(c.monthly.total) : "unknown")), "smaller");
   row("Rough start-up cost (septic + well)", costs.map((c) => (c ? c.oneTime.total : null)), costs.map((c) => (c ? money(c.oneTime.total) : "unknown")), "smaller");
+  const usda = items.map((it) => site(it).usda);
+  row("USDA loan area", usda.map((u) => (u ? (u.eligibleArea ? 1 : 0) : null)), usda.map((u) => (u === undefined ? "not looked up" : u === null ? "no data" : (u.eligibleArea ? "Yes" : "No"))), "larger");
   row("Acres", items.map((it) => it.parcel.acres), items.map((it) => it.parcel.acres ?? "?"));
   row("Flood zone", items.map(() => null), items.map((it) => site(it).floodZone || "unknown"));
   row("Septic suitability", items.map(() => null), items.map((it) => site(it).septicRating || "unknown"));

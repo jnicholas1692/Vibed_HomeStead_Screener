@@ -213,3 +213,9 @@
   .bar-group { gap: 6px; }
   .dlg-bar .btn.small { min-height: 30px; padding: 3px 8px; font-size: 0.82rem; }
 }
+
+/* Loan comparison table in the cost section. */
+.loan-table { min-width: 520px; }
+.loan-table td, .loan-table th { padding: 7px 10px; }
+.loan-table tr.total td { border-top: 2px solid var(--line); }
+.loan-table .sub { font-size: 0.78rem; font-weight: 400; }

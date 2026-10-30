@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v1.8.0.
+> Last updated for v1.9.0.
 
 ## 1. Problem
 
@@ -69,6 +69,10 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R32 | Name defaults to the address | The Name box follows the address until the person types their own name; leaving the name blank saves the address as the name | `feature/address-suggest` |
 | R33 | Edit a parcel | An Edit button in the report opens the Add window filled in with the parcel's name, address, coordinates, acres and price; saving updates the list, score and cost; changing the coordinates clears the looked-up data and fetches it again; closing without saving returns to the report unchanged | `feature/edit-and-order` |
 | R34 | Report section order | Settings has Up and Down buttons for the 11 middle sections of the report (the score and factors stay first, the data sources and notes stay last); the order is saved in the browser, applies to the report and printout, and sections missing from a saved order are added at the end | `feature/edit-and-order` |
+| R35 | Down payment in dollars | Settings has a cash down payment in dollars (default $20,000) in place of the old percent; it is never more than the price; saved percents from older versions are converted once using the price target | `feature/loans-usda` |
+| R36 | Asking price in the list | The parcel list shows the asking price right after the parcel name | `feature/loans-usda` |
+| R37 | 30-year FHA and conventional loans | The cost section compares your land loan with a conventional and an FHA 30-year loan at the same price: down payment (raised to the loan's minimum of 3% or 3.5% and flagged), amount borrowed, rate, principal and interest, mortgage insurance (PMI under 20% down; FHA 1.75% upfront added to the loan plus a yearly premium for 11 years at 10% down or more, otherwise for the whole loan), tax and insurance, and monthly total; it says bare land cannot be financed this way and flags an FHA loan above the national limit floor | `feature/loans-usda` |
+| R38 | USDA loan area | A Yes or No in the list, the report and the compare table: Yes when the point is outside every ineligible area on USDA Rural Development's single family housing eligibility map; the report says income limits and a home purchase still apply | `feature/loans-usda` |
 
 ## 5. Scoring rules
 
@@ -127,7 +131,7 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 
 ## 10. Testing
 
-- 102 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
+- 109 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
 - A browser test script with mocked services was used during development and is not part of the repository.
 - Live checks against real services are manual (see the tutorial).
 

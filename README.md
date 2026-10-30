@@ -19,6 +19,8 @@ This is a personal test of AI-assisted development. I am using it to see how far
 - Add a parcel by address or by clicking the map; data is looked up automatically
 - Edit a parcel's name, address, location, acres or price later; the score and cost update, and moving the pin looks the data up again
 - Choose the order of the report sections in Settings
+- Monthly cost with a dollar down payment, compared across your land loan and 30-year conventional and FHA home loans
+- USDA loan area (Yes or No) from USDA Rural Development's eligibility map
 - Score from 0 to 100 from eight factors you can weight, with dealbreakers (high-risk flood zone, too far from an airport)
 - Nearest airport from about 100 major US airports, or your own list
 - Nearest grocery store, hardware store, Costco, feed store and vet, with real road drive times
@@ -101,6 +103,7 @@ npm test
 
 ## Version history
 
+- **v1.9.0** Down payment in dollars; asking price next to the name in the list; 30-year conventional and FHA payments beside your land loan; a USDA loan area Yes or No from USDA's eligibility map
 - **v1.8.0** Edit a parcel's name, address, location, acres and price after adding it; choose the order of the report sections in Settings (the Criteria button is now Settings)
 - **v1.7.0** Address suggestions as you type (US, from OpenStreetMap via photon.komoot.io); the parcel name defaults to the address
 - **v1.6.0** A Delete button on every row of the parcel list; a lighter nearby-places query that the free map servers answer; a Clear data button that erases what the app saved in the browser

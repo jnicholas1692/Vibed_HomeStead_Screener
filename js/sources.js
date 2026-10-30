@@ -912,6 +912,22 @@ async function lookupWetlands(lat, lon) {
   return summarizeWetlands(here.features, near.features, near.more);
 }
 
+/* ---- USDA loan area, from USDA Rural Development's eligibility map ---- */
+
+// This layer holds the INELIGIBLE areas (towns and cities too built-up for USDA home loans), so a point
+// inside none of them is in an eligible area.
+const USDA_URL = "https://rdgdwe.sc.egov.usda.gov/arcgis/rest/services/Eligibility/Eligibility/MapServer/4/query";
+
+function summarizeUsda(features) {
+  return { eligibleArea: features.length === 0 };
+}
+
+async function lookupUsda(lat, lon) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("Bad coordinates");
+  const found = await arcgisFeatures(USDA_URL, { geometry: `${lon},${lat}`, geometryType: "esriGeometryPoint", outFields: "OBJECTID", resultRecordCount: "1" }, "USDA map");
+  return summarizeUsda(found.features);
+}
+
 /* ---- public and protected land, from the USGS Protected Areas Database (PAD-US) ---- */
 
 const PADUS_URL = "https://services.arcgis.com/v01gqwM5QqNysAAi/ArcGIS/rest/services/Public_Access/FeatureServer/0/query";
@@ -1095,6 +1111,7 @@ const SOURCE_STEPS = [
   ["Terrain",  async (p) => { Object.assign(p.site, await lookupTerrain(p.lat, p.lon)); }],
   ["Soil",     async (p) => { Object.assign(p.site, (await lookupSoil(p.lat, p.lon)) || {}); }],
   ["Soil details", async (p) => { p.site.soilDetails = await lookupSoilDetails(p.lat, p.lon); }],
+  ["USDA", async (p) => { p.site.usda = await lookupUsda(p.lat, p.lon); }],
   ["Public land", async (p) => { p.site.publicLand = await lookupPublicLand(p.lat, p.lon); }],
   ["Groundwater", async (p) => { p.site.groundwater = await lookupGroundwater(p.lat, p.lon); }],
   ["Wetlands", async (p) => { p.site.wetlands = await lookupWetlands(p.lat, p.lon); }],

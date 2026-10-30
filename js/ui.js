@@ -136,6 +136,13 @@ function updateCompareButton() {
   $("btn-compare").disabled = n < 2;
 }
 
+// "Yes", "No" or "?" for the USDA loan area. Shown as words, not just color.
+function usdaCell(usda) {
+  if (usda === undefined) return `<span class="sub">${lookingId ? "..." : "?"}</span>`;
+  if (usda === null) return "?";
+  return usda.eligibleArea ? "Yes" : "No";
+}
+
 function renderList(items) {
   if (items.length === 0 && parcels.length > 0) {
     $("list").innerHTML = `<div class="empty"><strong>No parcels match these filters.</strong><br>Change the status filter or untick "Hide dealbreakers".</div>`;
@@ -156,16 +163,17 @@ function renderList(items) {
       <td class="num col-n">${i + 1}</td>
       <td><button class="row-name" type="button" data-open="${esc(p.id)}">${esc(p.name)}</button>${score.dealbreakers.length ? `<span class="badge" title="${esc(score.dealbreakers.join("; "))}">Dealbreaker</span>` : ""}
         <div class="sub">${esc(countyLabel(p))} &middot; ${esc(p.acres ?? "?")} acres</div></td>
+      <td class="num">${money(p.askingPrice)}</td>
       <td><span class="score ${scoreClass(score.total)}">${scoreText(score.total)}</span><div class="sub">${score.factorsScored}/${score.factorsTotal} factors</div></td>
+      <td>${usdaCell(site.usda)}</td>
       <td>${esc(site.floodZone || "unknown")}</td>
       <td>${esc(net)}</td>
       <td class="num col-air">${esc(drive)}</td>
-      <td class="num">${money(p.askingPrice)}</td>
       <td class="col-del">${deleteButton(p.id)}</td>
     </tr>`;
   }).join("");
   $("list").innerHTML = `<div class="table-scroll"><table>
-    <thead><tr><th class="col-pick">Pick</th><th class="num col-n">#</th><th>Parcel</th><th>Score</th><th>Flood</th><th>Internet</th><th class="num col-air">To airport</th><th class="num">Price</th><th class="col-del" aria-label="Delete"></th></tr></thead>
+    <thead><tr><th class="col-pick">Pick</th><th class="num col-n">#</th><th>Parcel</th><th class="num">Price</th><th>Score</th><th title="Is the spot in a USDA loan eligible area?">USDA</th><th>Flood</th><th>Internet</th><th class="num col-air">To airport</th><th class="col-del" aria-label="Delete"></th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 
@@ -352,8 +360,24 @@ function costHtml(parcel) {
   if (!est) return `<p class="hint">Add an asking price to see a rough cost estimate.</p>`;
   const c = settings.costs;
   const loanText = c.years > 0 ? `${money(est.monthly.loan)}` : "$0 (cash)";
+  const h = est.homeLoans, conv = h.conventional, fha = h.fha;
+  const taxAndIns = est.monthly.tax + est.monthly.insurance;
+  const land = { down: est.downPayment, borrowed: parcel.askingPrice - est.downPayment, rate: c.years > 0 ? `${c.ratePct}% for ${c.years} years` : "cash" };
+  const pct = (x) => `${x}%`;
+  const rows = [
+    ["Cash down payment", money(land.down), money(conv.downPayment), money(fha.downPayment)],
+    ["Amount borrowed", c.years > 0 ? money(land.borrowed) : "$0", money(conv.borrowed), `${money(fha.borrowed)}<div class="sub">includes ${money(fha.upfrontInsurance)} upfront insurance</div>`],
+    ["Interest rate", esc(land.rate), `${pct(conv.ratePct)} for 30 years`, `${pct(fha.ratePct)} for 30 years`],
+    ["Principal and interest", loanText, money(conv.pi), money(fha.pi)],
+    ["Mortgage insurance", "none", `${money(conv.insurance)}<div class="sub">${esc(conv.insuranceNote)}</div>`, `${money(fha.insurance)}<div class="sub">${esc(fha.insuranceNote)}</div>`],
+    ["Property tax and home insurance", money(taxAndIns), money(taxAndIns), money(taxAndIns)],
+  ];
+  const homeNotes = [];
+  if (conv.raisedToMinimum) homeNotes.push(`Your down payment is under the ${LOAN_RULES.conventionalMinDownPct}% a conventional loan needs, so ${money(conv.minimumDown)} is used.`);
+  if (fha.raisedToMinimum) homeNotes.push(`Your down payment is under the ${LOAN_RULES.fhaMinDownPct}% an FHA loan needs, so ${money(fha.minimumDown)} is used.`);
+  if (fha.overLimit) homeNotes.push(`The FHA loan is above the ${money(LOAN_RULES.fhaLoanLimitFloor)} national limit floor. Limits are higher in costly counties, so check the county limit.`);
   return `<div class="kv">
-      <div>Loan payment</div><div>${loanText}${c.years > 0 ? ` <span class="sub">(${c.downPct}% down, ${c.ratePct}% for ${c.years} years)</span>` : ""}</div>
+      <div>Loan payment</div><div>${loanText}${c.years > 0 ? ` <span class="sub">(${money(est.downPayment)} down, ${c.ratePct}% for ${c.years} years)</span>` : ""}</div>
       <div>Property tax</div><div>${money(est.monthly.tax)} <span class="sub">(${est.taxPct}% a year, ${est.taxSource === "county" ? `typical for ${esc(parcel.site.taxRate.name)}` : "your setting"})</span></div>
       <div>Insurance</div><div>${money(est.monthly.insurance)}</div>
       <div><strong>About per month</strong></div><div><strong>${money(est.monthly.total)}</strong></div>
@@ -362,7 +386,16 @@ function costHtml(parcel) {
       <div>Water well</div><div>${money(est.oneTime.well)}</div>
       <div><strong>One-time start-up</strong></div><div><strong>${money(est.oneTime.total)}</strong></div>
     </div>
-    <p class="hint">${esc(est.notes.join(" "))} These numbers come from the placeholder rates and prices in Criteria, not from a quote. Property tax, insurance and building costs vary widely by state and county, and this leaves out the house, the driveway, electricity, and loan fees. Ask a lender, the county tax office and local contractors.</p>${taxKeyHint(parcel)}`;
+    <p class="hint">${esc(est.notes.join(" "))} These numbers come from the placeholder rates and prices in Settings, not from a quote. Property tax, insurance and building costs vary widely by state and county, and this leaves out the house, the driveway, electricity, and loan fees. Ask a lender, the county tax office and local contractors.</p>${taxKeyHint(parcel)}
+    <h4>Monthly payment by loan type</h4>
+    <div class="table-scroll"><table class="loan-table">
+      <thead><tr><th></th><th class="num">Land loan (your terms)</th><th class="num">Conventional, 30 years</th><th class="num">FHA, 30 years</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr><td>${r[0]}</td><td class="num">${r[1]}</td><td class="num">${r[2]}</td><td class="num">${r[3]}</td></tr>`).join("")}
+        <tr class="total"><td><strong>About per month</strong></td><td class="num"><strong>${money(est.monthly.total)}</strong></td><td class="num"><strong>${money(conv.total)}</strong></td><td class="num"><strong>${money(fha.total)}</strong></td></tr>
+      </tbody></table></div>
+    ${homeNotes.length ? `<p class="hint">${esc(homeNotes.join(" "))}</p>` : ""}
+    <p class="hint"><strong>Read this first:</strong> banks do not make FHA or conventional loans on bare land. Those two columns show what the same price would cost as a home purchase, or as a construction-to-permanent loan that covers the land and the house. An FHA loan is only for a home you will live in. The land loan column uses your own terms from Settings. Rates, insurance and limits here are placeholders: the conventional rate is the Freddie Mac weekly average for a 30-year loan (7.32% on October 22, 2026) rounded, the FHA rate is a guess, and FHA's insurance is 1.75% at closing (added to the loan) plus ${c.fhaAnnualPct}% a year. A lender will quote real numbers for your credit and county.</p>
+    <p class="hint">USDA loan area: <strong>${usdaCell(parcel.site && parcel.site.usda)}</strong>. ${parcel.site && parcel.site.usda ? (parcel.site.usda.eligibleArea ? "This spot is outside USDA's mapped ineligible areas, so a USDA guaranteed home loan may be possible here. " : "This spot is inside a USDA ineligible area. ") : ""}USDA loans also have household income limits and are for buying a home, not bare land. Check the exact address on <a href="https://eligibility.sc.egov.usda.gov/eligibility/" target="_blank" rel="noopener">USDA's eligibility site</a> and ask a USDA-approved lender.</p>`;
 }
 
 function openDetail(id) {
@@ -397,10 +430,11 @@ function openDetail(id) {
         ${kv("Septic rating", esc(site.septicRating || "?"))}
         ${kv("Average yearly rain", site.annualRainIn != null ? `${site.annualRainIn} in` : "?")}
         ${kv("Nearest airport", esc(drive))}
+        ${kv("USDA loan area", usdaCell(site.usda))}
         ${kv("Plant hardiness zone", site.hardiness ? `${esc(hardinessText(site.hardiness))} <span class="sub">by ZIP ${esc(site.hardiness.zip)}, USDA ${esc(site.hardiness.vintage)} map</span>` : (site.hardiness === undefined ? "not looked up yet" : "?"))}
         ${kv("Data fetched", p.fetchedAt ? esc(new Date(p.fetchedAt).toLocaleString()) : "never")}
       </div>
-      <p class="source">Sources for this table: ${["county", "flood", "elevation", "soil", "rain", "airport", "hardiness"].filter((k) => sourceKeysUsed(p).includes(k)).map((k) => `${esc(DATA_SOURCES[k].label)}: ${DATA_SOURCES[k].url ? `<a href="${esc(DATA_SOURCES[k].url)}" target="_blank" rel="noopener">${esc(DATA_SOURCES[k].name)}</a>` : esc(DATA_SOURCES[k].name)}, ${esc(sourceVintage(k, site))}`).join("; ")}.</p>`,
+      <p class="source">Sources for this table: ${["county", "flood", "elevation", "soil", "rain", "airport", "hardiness", "usda"].filter((k) => sourceKeysUsed(p).includes(k)).map((k) => `${esc(DATA_SOURCES[k].label)}: ${DATA_SOURCES[k].url ? `<a href="${esc(DATA_SOURCES[k].url)}" target="_blank" rel="noopener">${esc(DATA_SOURCES[k].name)}</a>` : esc(DATA_SOURCES[k].name)}, ${esc(sourceVintage(k, site))}`).join("; ")}.</p>`,
     internet: `
       <h3>Internet</h3>
       ${internetHtml(site.internet)}
@@ -809,10 +843,13 @@ const CRITERIA_FIELDS = [
   ["Airport: full marks within (min)", "airportFullMin"], ["Airport: dealbreaker beyond (min)", "airportMaxMin"],
   ["Road detour factor", "detourFactor"], ["Average speed (mph)", "avgMph"],
   ["Internet: full marks at (Mbps)", "internetFullMbps"], ["Internet: zero at (Mbps)", "internetZeroMbps"],
-  ["Cost: down payment (%)", "costs.downPct"], ["Cost: loan interest rate (%)", "costs.ratePct"],
+  ["Cost: down payment ($)", "costs.downPayment"], ["Cost: land loan interest rate (%)", "costs.ratePct"],
   ["Cost: loan length (years, 0 = cash)", "costs.years"], ["Cost: property tax (% of price per year)", "costs.taxPct"],
   ["Cost: insurance ($ per month)", "costs.insuranceMonthly"], ["Cost: standard septic ($)", "costs.septicStandard"],
   ["Cost: engineered septic ($)", "costs.septicEngineered"], ["Cost: water well ($)", "costs.well"],
+  ["Home loan: conventional 30-year rate (%)", "costs.conventionalRatePct"], ["Home loan: FHA 30-year rate (%)", "costs.fhaRatePct"],
+  ["Home loan: private mortgage insurance (% a year)", "costs.pmiPct"],
+  ["Home loan: FHA upfront insurance (%)", "costs.fhaUpfrontPct"], ["Home loan: FHA yearly insurance (%)", "costs.fhaAnnualPct"],
 ];
 
 const getPath = (obj, path) => path.split(".").reduce((o, k) => o[k], obj);

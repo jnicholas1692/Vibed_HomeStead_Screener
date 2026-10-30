@@ -27,12 +27,22 @@ function writeStored(key, value) {
   document.getElementById("storage-warning").hidden = storageOk;
 }
 
+// Older versions saved the down payment as a percent. Turn it into dollars once, using the price target.
+function migrateCosts(costs, saved) {
+  const old = saved.costs || {};
+  if (old.downPayment === undefined && Number.isFinite(old.downPct)) {
+    costs.downPayment = Math.round((saved.priceTarget ?? DEFAULT_SETTINGS.priceTarget) * old.downPct / 100);
+  }
+  delete costs.downPct;
+  return costs;
+}
+
 function loadSettings() {
   const saved = readStored(SETTINGS_KEY, {});
   return {
     ...DEFAULT_SETTINGS, ...saved,
     weights: { ...DEFAULT_SETTINGS.weights, ...(saved.weights || {}) },
-    costs: { ...DEFAULT_SETTINGS.costs, ...(saved.costs || {}) },
+    costs: migrateCosts({ ...DEFAULT_SETTINGS.costs, ...(saved.costs || {}) }, saved),
     reportOrder: normalizeReportOrder(saved.reportOrder),
     huntingCounties: Array.isArray(saved.huntingCounties) ? saved.huntingCounties : [],
     censusKey: typeof saved.censusKey === "string" ? saved.censusKey : "",

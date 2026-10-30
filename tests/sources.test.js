@@ -1075,3 +1075,26 @@ test("report order: the default order lists every section once", () => {
   const defaults = plain(pure.get("DEFAULT_SETTINGS.reportOrder"));
   assert.deepEqual([...defaults].sort(), plain(pure.get("REPORT_SECTIONS")).map((x) => x[0]).sort());
 });
+
+// ---- USDA loan area ----
+test("USDA: a point inside no ineligible area is eligible, one inside an area is not", async () => {
+  const inside = loadScripts(["config.js", "sources.js"], { fetch: fakeFetch({ "rdgdwe.sc.egov.usda.gov": { body: JSON.stringify({ features: [{ attributes: { OBJECTID: 1 } }] }) } }) });
+  assert.deepEqual(plain(await inside.get("lookupUsda")(30.27, -97.74)), { eligibleArea: false });
+  const outside = loadScripts(["config.js", "sources.js"], { fetch: fakeFetch({ "rdgdwe.sc.egov.usda.gov": { body: JSON.stringify({ features: [] }) } }) });
+  assert.deepEqual(plain(await outside.get("lookupUsda")(30.275, -98.4)), { eligibleArea: true });
+});
+
+test("USDA: a service error is a failure, not 'eligible'", async () => {
+  const app = loadScripts(["config.js", "sources.js"], { fetch: fakeFetch({ "rdgdwe.sc.egov.usda.gov": { body: JSON.stringify({ error: { code: 500 } }) } }) });
+  await assert.rejects(() => app.get("lookupUsda")(30.27, -97.74));
+});
+
+test("saved settings with the old percent down payment become dollars", () => {
+  const storage = loadScripts(["config.js", "scoring.js", "sources.js", "storage.js"], {
+    localStorage: { getItem: (k) => (k.includes("settings") ? JSON.stringify({ priceTarget: 200000, costs: { downPct: 10 } }) : null), setItem() {}, removeItem() {} },
+    document: { getElementById: () => ({ hidden: true }) },
+  });
+  const loaded = plain(storage.get("loadSettings")());
+  assert.equal(loaded.costs.downPayment, 20000);
+  assert.equal(loaded.costs.downPct, undefined);
+});

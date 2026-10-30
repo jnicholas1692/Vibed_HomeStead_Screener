@@ -15,7 +15,13 @@ const DEFAULT_SETTINGS = {
   huntingCounties: [],                           // counties where you confirmed you can hunt
   // Placeholders for the rough cost estimate. Replace them with real quotes for the area you are searching.
   costs: {
-    downPct: 20, ratePct: 7.5, years: 20,          // land loan terms; 0 years means you pay cash
+    downPayment: 20000,                            // cash down payment in dollars (used for every loan below, never more than the price)
+    ratePct: 7.5, years: 20,                       // land loan terms; 0 years means you pay cash
+    // 30-year home loan placeholders. Rates change daily; Freddie Mac's weekly average for a conventional 30-year loan
+    // was 7.32% on October 22, 2026. The FHA rate is a guess (often a little lower), so replace both with a lender's quote.
+    conventionalRatePct: 7.3, fhaRatePct: 7.0,
+    pmiPct: 0.6,                                   // conventional private mortgage insurance, % of the loan per year, when under 20% down
+    fhaUpfrontPct: 1.75, fhaAnnualPct: 0.55,       // FHA mortgage insurance: paid at closing (added to the loan) and per year
     taxPct: 1.0,                                   // yearly property tax as a percent of price (varies a lot by state)
     useCountyTax: true,                            // use the county's typical rate from the Census when it is known
     insuranceMonthly: 40,
@@ -51,6 +57,14 @@ function normalizeReportOrder(saved) {
 
 // How the list is sorted and filtered when you first open the page.
 const DEFAULT_VIEW = { sort: "score", status: "all", hideDealbreakers: false };
+
+// Fixed rules for the 30-year home loan comparison (FHA minimums as of 2026).
+const LOAN_RULES = {
+  years: 30,
+  conventionalMinDownPct: 3, conventionalNoPmiDownPct: 20,
+  fhaMinDownPct: 3.5, fhaLongMipDownPct: 10,       // under 10% down, FHA insurance lasts the whole loan; 10% or more, 11 years
+  fhaLoanLimitFloor: 541287,                        // the national floor for a one-unit home in 2026; higher in costly counties
+};
 
 const FACTOR_LABELS = {
   flood: "Flood zone", septic: "Septic suitability", slope: "Slope", rain: "Rainfall",
@@ -197,6 +211,7 @@ const DATA_SOURCES = {
   wetlands:     { label: "Wetlands",                 name: "US Fish and Wildlife Service National Wetlands Inventory", url: "https://www.fws.gov/program/national-wetlands-inventory", vintage: "current NWI map (mapping dates vary by area)" },
   publicLand:   { label: "Public and protected land", name: "USGS Protected Areas Database of the US (PAD-US)",      url: "https://www.usgs.gov/programs/gap-analysis-project/science/pad-us-data-overview", vintage: "current PAD-US release" },
   groundwater:  { label: "Groundwater",            name: "USGS National Water Information System (groundwater levels)", url: "https://waterdata.usgs.gov/nwis/gw",                  vintage: "latest measurements in the past 10 years" },
+  usda:         { label: "USDA loan area",           name: "USDA Rural Development Single Family Housing eligibility map (ineligible areas)", url: "https://eligibility.sc.egov.usda.gov/eligibility/", vintage: "current USDA map" },
   costs:        { label: "Rough cost",               name: "Placeholder rates and prices from your Criteria",        url: null,                                                       vintage: "your settings; the county tax rate comes from the Census ACS when known" },
 };
 
@@ -248,6 +263,7 @@ const GLOSSARY = {
   // ---- compare table ----
   "Score": { text: "The parcel's overall score from 0 to 100, a weighted average of the factors that had data. Weights are set in Criteria." },
   "Dealbreakers": { text: "Problems you told the app to treat as disqualifying in Criteria, such as a high-risk flood zone." },
+  "USDA loan area": { source: "usda", text: "Whether the spot is in an area where USDA Rural Development guaranteed home loans are available. \"Yes\" means it is not inside one of USDA's mapped ineligible (more built-up) areas. It says nothing about income limits (the buyer's household income must be under a limit), about the buyer's credit, or about the property: USDA loans buy a home, not bare land. Check the exact address on USDA's own map." },
   "Asking price": { text: "The price you entered for the parcel." },
   "Price per acre": { text: "Asking price divided by acres." },
   "Rough monthly cost": { source: "costs", text: "Estimated monthly cost of owning the land (loan, property tax, insurance, and so on) from the rates in Criteria. It is not a quote." },
