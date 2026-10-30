@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v1.6.0.
+> Last updated for v1.7.0.
 
 ## 1. Problem
 
@@ -65,6 +65,8 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R28 | Delete from the list | Every row in the parcel list has a Delete button; the first click asks "Click again to delete" for 4 seconds, the second removes the parcel | `feature/list-delete` |
 | R29 | Lighter nearby-places query | The places query uses exact tags and names only (no name patterns, which time out); servers are tried starting with the last one that worked; each request waits up to 30 seconds | `fix/lighter-places-and-clear-data` |
 | R30 | Clear data | A Clear data button erases the parcels, criteria and map view this app saved in the browser, after a second click to confirm | `fix/lighter-places-and-clear-data` |
+| R31 | Address suggestions | Typing 4 or more characters in the Address box shows up to six US suggestions (street, city, state, ZIP) from OpenStreetMap through photon.komoot.io, after a short pause in typing; arrow keys, Enter, Escape or a click pick one; picking fills the latitude and longitude unless the person typed their own; editing the address afterwards clears coordinates a suggestion filled; if the service is down the box says so and typing still works | `feature/address-suggest` |
+| R32 | Name defaults to the address | The Name box follows the address until the person types their own name; leaving the name blank saves the address as the name | `feature/address-suggest` |
 
 ## 5. Scoring rules
 
@@ -123,7 +125,7 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 
 ## 10. Testing
 
-- 96 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
+- 100 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
 - A browser test script with mocked services was used during development and is not part of the repository.
 - Live checks against real services are manual (see the tutorial).
 

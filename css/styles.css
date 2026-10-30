@@ -192,3 +192,12 @@
     .bar span { background: #555 !important; }
   }
 
+
+/* Address suggestions: a list that drops under the Address box. */
+.suggest-wrap { position: relative; display: block; }
+.suggest-list { position: absolute; left: 0; right: 0; top: 100%; z-index: 20; margin: 2px 0 0; padding: 4px; list-style: none; max-height: 260px; overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18); }
+.suggest-list[hidden] { display: none; }
+.suggest-list li { padding: 9px 10px; border-radius: 7px; cursor: pointer; color: var(--ink); font-size: 0.92rem; }
+.suggest-list li[aria-selected="true"], .suggest-list li:hover { background: var(--chip); }
+.suggest-list li.note { color: var(--muted); cursor: default; }
+.suggest-list li.note:hover { background: none; }

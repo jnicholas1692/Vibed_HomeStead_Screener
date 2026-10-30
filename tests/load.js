@@ -29,7 +29,7 @@ function fakeFetch(routes) {
     const key = Object.keys(routes).find((part) => String(url).includes(part));
     if (!key) throw new Error("No fake reply for " + url);
     const reply = routes[key];
-    return { ok: reply.status === undefined || reply.status < 400, status: reply.status ?? 200, text: async () => reply.body };
+    return { ok: reply.status === undefined || reply.status < 400, status: reply.status ?? 200, text: async () => reply.body, json: async () => JSON.parse(reply.body) };
   };
   fetchFn.calls = calls;
   return fetchFn;

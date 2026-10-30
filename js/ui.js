@@ -83,6 +83,7 @@ function initMap() {
     if (!pickMode) return;
     $("f-lat").value = event.latlng.lat.toFixed(5);
     $("f-lon").value = event.latlng.lng.toFixed(5);
+    coordsFromSuggestion = false;   // the person chose this spot, so typing in the address box must not wipe it
     endPick();
   });
 }
@@ -546,11 +547,11 @@ async function addParcelFromForm(event) {
   errorBox.hidden = true;
   const fail = (message) => { errorBox.textContent = message; errorBox.hidden = false; };
 
-  const name = $("f-name").value.trim();
   const address = $("f-address").value.trim();
+  const name = $("f-name").value.trim() || address;   // the address is the default name
   let lat = parseNumber($("f-lat").value), lon = parseNumber($("f-lon").value);
   const acres = parseNumber($("f-acres").value), price = parseNumber($("f-price").value);
-  if (!name) return fail("Enter a name.");
+  if (!name) return fail("Enter a name or an address.");
   if ([lat, lon, acres, price].some((v) => Number.isNaN(v))) return fail("Latitude, longitude, acres and price must be numbers.");
   if ((lat == null) !== (lon == null)) return fail("Enter both latitude and longitude, or neither.");
 
@@ -574,6 +575,9 @@ async function addParcelFromForm(event) {
     saveParcels();
     renderAll();
     $("form-add").reset();
+    closeSuggestions();
+    coordsFromSuggestion = false;
+    nameFromAddress = true;
     $("dlg-add").close();
     const lookups = runLookups(parcel);   // starts now; the report below fills in as each lookup finishes
     openDetail(parcel.id);
@@ -850,6 +854,107 @@ document.addEventListener("click", (event) => {
   else if (el.dataset.delete) deleteParcel(el.dataset.delete);
   else if (el.dataset.saveNotes) saveNotes(el.dataset.saveNotes);
 });
+
+/* =====================================================================
+   Address suggestions: a list under the Address box that fills in as you type
+   ===================================================================== */
+let suggestions = [];          // what the list is showing right now
+let suggestActive = -1;        // which row the arrow keys are on
+let suggestTimer = null;       // waits for a pause in typing before asking the service
+let suggestRequest = null;     // the lookup in flight, so a newer one can cancel it
+let nameFromAddress = true;         // true until the person types their own name; then the address stops overwriting it
+let coordsFromSuggestion = false;   // true while the latitude and longitude boxes hold values a suggestion put there
+
+// Keeps the Name box in step with the address until the person types a name of their own.
+function syncNameToAddress() {
+  if (nameFromAddress) $("f-name").value = $("f-address").value.trim().slice(0, 80);
+}
+
+function closeSuggestions() {
+  clearTimeout(suggestTimer);
+  if (suggestRequest) suggestRequest.abort();
+  suggestions = []; suggestActive = -1;
+  $("address-list").hidden = true;
+  $("address-list").innerHTML = "";
+  $("f-address").setAttribute("aria-expanded", "false");
+  $("f-address").removeAttribute("aria-activedescendant");
+}
+
+function showSuggestions(note) {
+  const list = $("address-list");
+  if (note) {
+    list.innerHTML = `<li class="note" role="option" aria-disabled="true">${esc(note)}</li>`;
+  } else {
+    list.innerHTML = suggestions.map((s, i) =>
+      `<li role="option" id="address-opt-${i}" data-index="${i}" aria-selected="${i === suggestActive}">${esc(s.label)}</li>`).join("");
+  }
+  list.hidden = false;
+  $("f-address").setAttribute("aria-expanded", "true");
+  if (suggestActive >= 0) $("f-address").setAttribute("aria-activedescendant", `address-opt-${suggestActive}`);
+  else $("f-address").removeAttribute("aria-activedescendant");
+}
+
+function pickSuggestion(index) {
+  const s = suggestions[index];
+  if (!s) return;
+  closeSuggestions();
+  $("f-address").value = s.label;
+  syncNameToAddress();
+  // Fill the coordinates only if the person has not typed their own.
+  const latBox = $("f-lat"), lonBox = $("f-lon");
+  if ((!latBox.value && !lonBox.value) || coordsFromSuggestion) {
+    latBox.value = s.lat.toFixed(5);
+    lonBox.value = s.lon.toFixed(5);
+    coordsFromSuggestion = true;
+  }
+}
+
+$("f-address").addEventListener("input", () => {
+  syncNameToAddress();
+  // Changing the address after picking a suggestion makes its coordinates stale, so clear them.
+  if (coordsFromSuggestion) { $("f-lat").value = ""; $("f-lon").value = ""; coordsFromSuggestion = false; }
+  clearTimeout(suggestTimer);
+  const text = $("f-address").value.trim();
+  if (text.length < 4) { closeSuggestions(); return; }
+  suggestTimer = setTimeout(async () => {
+    if (suggestRequest) suggestRequest.abort();
+    const request = new AbortController();
+    suggestRequest = request;
+    const timeout = setTimeout(() => request.abort(), 8000);
+    try {
+      const found = await suggestAddresses(text, request.signal);
+      if (suggestRequest !== request) return;   // a newer search replaced this one
+      suggestions = found; suggestActive = -1;
+      showSuggestions(found.length ? null : "No suggestions. You can still type the full address.");
+    } catch {
+      if (suggestRequest !== request) return;
+      suggestions = [];
+      showSuggestions("Suggestions are unavailable right now. You can still type the full address.");
+    } finally {
+      clearTimeout(timeout);
+    }
+  }, 350);
+});
+
+$("f-address").addEventListener("keydown", (e) => {
+  const open = !$("address-list").hidden && suggestions.length > 0;
+  if (e.key === "Escape" && !$("address-list").hidden) { e.preventDefault(); e.stopPropagation(); closeSuggestions(); return; }
+  if (!open) return;
+  if (e.key === "ArrowDown") { e.preventDefault(); suggestActive = (suggestActive + 1) % suggestions.length; showSuggestions(); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); suggestActive = (suggestActive - 1 + suggestions.length) % suggestions.length; showSuggestions(); }
+  else if (e.key === "Enter" && suggestActive >= 0) { e.preventDefault(); pickSuggestion(suggestActive); }
+});
+
+// mousedown (not click) so the pick lands before the box loses focus and the list closes.
+$("address-list").addEventListener("mousedown", (e) => {
+  const row = e.target.closest("li[data-index]");
+  if (row) { e.preventDefault(); pickSuggestion(Number(row.dataset.index)); }
+});
+$("f-address").addEventListener("blur", () => setTimeout(closeSuggestions, 150));
+// Typing in the Name box takes over from the address; clearing it hands the name back to the address.
+$("f-name").addEventListener("input", () => { nameFromAddress = $("f-name").value.trim() === ""; syncNameToAddress(); });
+for (const id of ["f-lat", "f-lon"]) $(id).addEventListener("input", () => { coordsFromSuggestion = false; });
+$("dlg-add").addEventListener("close", closeSuggestions);
 
 $("btn-add").addEventListener("click", () => { $("add-error").hidden = true; $("dlg-add").showModal(); });
 $("btn-pick").addEventListener("click", startPick);

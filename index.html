@@ -67,11 +67,15 @@
     <div class="dlg-body">
       <div class="fields">
         <label class="wide">Name
-          <input id="f-name" required maxlength="80" placeholder="Example: 10 acres off County Road 12">
+          <input id="f-name" maxlength="80" placeholder="Defaults to the address; type your own to change it">
         </label>
         <label class="wide">Address (optional)
-          <input id="f-address" maxlength="160" placeholder="Used only if you leave latitude and longitude empty">
+          <span class="suggest-wrap">
+            <input id="f-address" maxlength="160" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="address-list" placeholder="Start typing, then pick a suggestion">
+            <ul id="address-list" class="suggest-list" role="listbox" hidden></ul>
+          </span>
         </label>
+        <p class="hint wide" id="address-hint">Suggestions come from OpenStreetMap through photon.komoot.io, so the text you type here is sent to that service. Picking one fills in the latitude and longitude too. You can also type a whole address and leave the rest blank.</p>
         <label>Latitude <input id="f-lat" inputmode="decimal" placeholder="30.27500"></label>
         <label>Longitude <input id="f-lon" inputmode="decimal" placeholder="-98.40000"></label>
         <label>Acres <input id="f-acres" inputmode="decimal"></label>

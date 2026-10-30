@@ -58,6 +58,39 @@ async function geocodeAddress(address) {
   return { lat: match.coordinates.y, lon: match.coordinates.x, matched: match.matchedAddress };
 }
 
+// Address suggestions while typing. Photon (photon.komoot.io) is a free search over
+// OpenStreetMap that allows requests from a web page. It is only used to suggest
+// addresses; the Census geocoder is still what looks the final address up.
+const PHOTON = "https://photon.komoot.io/api/";
+
+// Turns one Photon result into a one-line US address, or null if it is not in the US.
+function formatSuggestion(feature) {
+  const p = (feature && feature.properties) || {};
+  const coords = feature && feature.geometry && feature.geometry.coordinates;
+  if (p.countrycode !== "US" || !coords) return null;
+  const street = p.housenumber && p.street ? `${p.housenumber} ${p.street}` : (p.street || p.name || "");
+  const place = p.city || p.town || p.village || p.county || "";
+  const stateZip = [p.state, p.postcode].filter(Boolean).join(" ");
+  const label = [street, place, stateZip].filter(Boolean).join(", ");
+  if (!label || !stateZip) return null;
+  return { label, lat: coords[1], lon: coords[0] };
+}
+
+// Up to six distinct US suggestions for what has been typed so far.
+async function suggestAddresses(text, signal) {
+  const url = `${PHOTON}?q=${encodeURIComponent(text)}&limit=8&lang=en&bbox=-179.2,18.8,-66.9,71.5`;
+  const response = await fetch(url, { signal });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const data = await response.json();
+  const seen = new Set();
+  const out = [];
+  for (const feature of data.features || []) {
+    const item = formatSuggestion(feature);
+    if (item && !seen.has(item.label)) { seen.add(item.label); out.push(item); }
+  }
+  return out.slice(0, 6);
+}
+
 // Pulls the county name and two-letter state out of a Census reply.
 // Louisiana "parishes" and Alaska "boroughs" keep their full name.
 function parseCounty(data) {

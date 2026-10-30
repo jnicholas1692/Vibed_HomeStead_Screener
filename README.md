@@ -4,7 +4,7 @@ Screen land parcels anywhere in the United States using free public data. Enter 
 
 It is a plain website: HTML, CSS and JavaScript with no build step and no server. Your parcels and criteria are saved in your own browser (localStorage). Nothing is uploaded to an account.
 
-**Live demo:** https://jnicholas1692.github.io/Vibed_HomeStead_Screener/
+**Live demo:** https://YOUR-USERNAME.github.io/homestead-screener/
 
 ## Features
 
@@ -91,6 +91,7 @@ npm test
 
 ## Version history
 
+- **v1.7.0** Address suggestions as you type (US, from OpenStreetMap via photon.komoot.io); the parcel name defaults to the address
 - **v1.6.0** A Delete button on every row of the parcel list; a lighter nearby-places query that the free map servers answer; a Clear data button that erases what the app saved in the browser
 - **v1.5.0** The report opens at once and fills in as each lookup finishes; the Refresh, Print, Copy, Save, Delete and Close buttons stay pinned at the top; the free map servers are asked one request at a time
 - **v1.4.0** Hover help: plain-language explanations for the labels in the report, the compare table and the score table

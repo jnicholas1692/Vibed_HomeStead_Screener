@@ -1031,3 +1031,32 @@ test("clearAllData erases what was saved and goes back to the defaults", () => {
   assert.equal(app.get("settings.priceTarget"), app.get("DEFAULT_SETTINGS.priceTarget"));
   assert.equal(app.get("view.sort"), app.get("DEFAULT_VIEW.sort"));
 });
+
+// ---- address suggestions ----
+const photonFeature = (props, coords = [-98.4, 30.275]) => ({ properties: props, geometry: { coordinates: coords } });
+
+test("suggestions: a street address becomes one line with state and ZIP", () => {
+  const out = plain(pure.get("formatSuggestion")(photonFeature({ countrycode: "US", housenumber: "12", street: "County Road 12", city: "Blanco", state: "Texas", postcode: "78606" })));
+  assert.deepEqual(out, { label: "12 County Road 12, Blanco, Texas 78606", lat: 30.275, lon: -98.4 });
+});
+
+test("suggestions: results outside the US or without a state are dropped", () => {
+  const f = pure.get("formatSuggestion");
+  assert.equal(f(photonFeature({ countrycode: "CA", street: "Main St", city: "Calgary", state: "Alberta" })), null);
+  assert.equal(f(photonFeature({ countrycode: "US", name: "Somewhere" })), null);
+});
+
+test("suggestions: duplicates are merged and the list stops at six", async () => {
+  const features = [];
+  for (let i = 0; i < 9; i++) features.push(photonFeature({ countrycode: "US", housenumber: String(i), street: "Oak St", city: "Austin", state: "Texas", postcode: "78701" }));
+  features.push(features[0]);
+  const app = loadScripts(["config.js", "sources.js"], { fetch: fakeFetch({ "photon.komoot.io": { body: JSON.stringify({ features }) } }) });
+  const list = plain(await app.get("suggestAddresses")("oak st austin"));
+  assert.equal(list.length, 6);
+  assert.equal(new Set(list.map((x) => x.label)).size, 6);
+});
+
+test("suggestions: a server error is thrown so the page can say so", async () => {
+  const app = loadScripts(["config.js", "sources.js"], { fetch: fakeFetch({ "photon.komoot.io": { status: 503, body: "" } }) });
+  await assert.rejects(() => app.get("suggestAddresses")("oak st"));
+});
