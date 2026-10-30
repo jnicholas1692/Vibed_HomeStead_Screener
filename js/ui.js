@@ -160,10 +160,11 @@ function renderList(items) {
       <td>${esc(net)}</td>
       <td class="num col-air">${esc(drive)}</td>
       <td class="num">${money(p.askingPrice)}</td>
+      <td class="col-del">${deleteButton(p.id)}</td>
     </tr>`;
   }).join("");
   $("list").innerHTML = `<div class="table-scroll"><table>
-    <thead><tr><th class="col-pick">Pick</th><th class="num col-n">#</th><th>Parcel</th><th>Score</th><th>Flood</th><th>Internet</th><th class="num col-air">To airport</th><th class="num">Price</th></tr></thead>
+    <thead><tr><th class="col-pick">Pick</th><th class="num col-n">#</th><th>Parcel</th><th>Score</th><th>Flood</th><th>Internet</th><th class="num col-air">To airport</th><th class="num">Price</th><th class="col-del" aria-label="Delete"></th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 
@@ -390,7 +391,7 @@ function openDetail(id) {
       </div>
       <div class="bar-group">
         <button class="btn small primary" type="button" data-save-notes="${esc(p.id)}">Save notes</button>
-        <button class="btn small danger" type="button" data-delete="${esc(p.id)}">Delete</button>
+        ${deleteButton(p.id)}
         <button class="btn small" type="button" data-close>Close</button>
       </div>
     </div>
@@ -621,13 +622,21 @@ async function refreshParcel(id) {
   await lookups;
 }
 
+// Deleting takes two clicks: the first turns the button into "Click again to delete", the second deletes
+// (a page like this can't rely on confirm dialogs). The question goes away by itself after a few seconds.
 let armedDeleteId = null;
-function deleteParcel(id, button) {
-  // Two clicks: the first arms the button, the second deletes (the viewer can't rely on confirm dialogs).
+let armedTimer = null;
+function deleteButton(id) {
+  const armed = armedDeleteId === id;
+  return `<button class="btn small danger${armed ? " armed" : ""}" type="button" data-delete="${esc(id)}">${armed ? "Click again to delete" : "Delete"}</button>`;
+}
+function deleteParcel(id) {
+  clearTimeout(armedTimer);
   if (armedDeleteId !== id) {
     armedDeleteId = id;
-    button.textContent = "Click again to delete";
-    button.classList.add("armed");
+    armedTimer = setTimeout(() => { armedDeleteId = null; renderAll(); liveRender(); }, 4000);
+    renderAll();    // redraw the list and the open report so their Delete buttons show the question
+    liveRender();
     return;
   }
   armedDeleteId = null;
@@ -838,7 +847,7 @@ document.addEventListener("click", (event) => {
   else if (el.dataset.close !== undefined) el.closest("dialog").close();
   else if (el.dataset.open) openDetail(el.dataset.open);
   else if (el.dataset.refresh) refreshParcel(el.dataset.refresh);
-  else if (el.dataset.delete) deleteParcel(el.dataset.delete, el);
+  else if (el.dataset.delete) deleteParcel(el.dataset.delete);
   else if (el.dataset.saveNotes) saveNotes(el.dataset.saveNotes);
 });
 
@@ -869,6 +878,35 @@ $("btn-reset-criteria").addEventListener("click", () => {
   recomputeAirports();
   $("dlg-criteria").close();
   renderAll();
+});
+// Clear data erases everything saved in this browser. Like Delete it takes two clicks, and the question goes away by itself.
+let clearTimer = null;
+function resetClearButton() {
+  clearTimeout(clearTimer);
+  const button = $("btn-clear");
+  button.textContent = "Clear data";
+  button.classList.remove("armed");
+}
+$("btn-clear").addEventListener("click", () => {
+  const button = $("btn-clear");
+  if (!button.classList.contains("armed")) {
+    clearTimeout(clearTimer);
+    button.textContent = "Erase everything? Click again";
+    button.classList.add("armed");
+    clearTimer = setTimeout(resetClearButton, 5000);
+    return;
+  }
+  resetClearButton();
+  clearAllData();
+  compareIds = [];
+  for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
+  $("sort-by").value = view.sort;
+  $("filter-status").value = view.status;
+  $("hide-dealbreakers").checked = view.hideDealbreakers;
+  renderAll();
+  $("status").hidden = false;
+  $("status").innerHTML = "<strong>Everything this app saved in this browser was erased.</strong> Your criteria are back to the defaults.";
+  clearProgress(10000);
 });
 $("btn-export").addEventListener("click", exportData);
 $("btn-import").addEventListener("click", () => $("file-import").click());

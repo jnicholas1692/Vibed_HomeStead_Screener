@@ -87,6 +87,7 @@
   .list-hint { padding: 0 16px 8px; margin: 0; }
   .col-pick { width: 1%; text-align: center; }
   .col-pick input { width: 18px; height: 18px; }
+  .col-del { width: 1%; white-space: nowrap; text-align: right; }
   .wide-dialog { width: min(980px, calc(100vw - 24px)); }
   .compare-table thead th { text-transform: none; letter-spacing: 0; font-size: 0.92rem; color: var(--ink); }
   .compare-table th, .compare-table td { vertical-align: top; min-width: 150px; }

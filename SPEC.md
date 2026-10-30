@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v1.5.0.
+> Last updated for v1.6.0.
 
 ## 1. Problem
 
@@ -62,6 +62,9 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R25 | Hover help on labels | Labels in the report, the compare table and the factor table show a dotted underline; hovering, tapping or tabbing to one shows what the data means and which agency supplies it; Escape closes the tip without closing the report; a test fails if a label is added without an explanation | `feature/hover-help` |
 | R26 | Live report and pinned buttons | The report opens as soon as a parcel is added or refreshed, shows each lookup's data as it finishes with a count of lookups done, keeps the scroll position and any typed notes, and the Refresh, Print, Copy summary, Save notes, Delete and Close buttons stay at the top while the report scrolls | `feature/live-report` |
 | R27 | Gentle with the free map servers | Roads and nearby places ask the Overpass servers one request at a time; when every server fails, the error names each server and why | `feature/live-report` |
+| R28 | Delete from the list | Every row in the parcel list has a Delete button; the first click asks "Click again to delete" for 4 seconds, the second removes the parcel | `feature/list-delete` |
+| R29 | Lighter nearby-places query | The places query uses exact tags and names only (no name patterns, which time out); servers are tried starting with the last one that worked; each request waits up to 30 seconds | `fix/lighter-places-and-clear-data` |
+| R30 | Clear data | A Clear data button erases the parcels, criteria and map view this app saved in the browser, after a second click to confirm | `fix/lighter-places-and-clear-data` |
 
 ## 5. Scoring rules
 
@@ -120,7 +123,7 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 
 ## 10. Testing
 
-- 93 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
+- 96 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
 - A browser test script with mocked services was used during development and is not part of the repository.
 - Live checks against real services are manual (see the tutorial).
 

@@ -54,4 +54,14 @@ let parcels = readStored(PARCELS_KEY, []);
 if (!Array.isArray(parcels)) parcels = [];
 
 const saveParcels = () => writeStored(PARCELS_KEY, parcels);
+
+// Erases everything this app saved in this browser (parcels, criteria, list view) and starts again from the defaults.
+function clearAllData() {
+  for (const key of [PARCELS_KEY, SETTINGS_KEY, VIEW_KEY]) {
+    try { localStorage.removeItem(key); } catch { /* storage is blocked, so there is nothing saved to remove */ }
+  }
+  parcels = [];
+  settings = loadSettings();
+  view = loadView();
+}
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);

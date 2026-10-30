@@ -566,10 +566,12 @@ const PLACE_KINDS = [
     overpass: ['["shop"~"^(hardware|doityourself)$"]'],
     test: (tags) => tags.shop === "hardware" || tags.shop === "doityourself" },
   { key: "costco", label: "Costco",
-    overpass: ['["brand"="Costco"]', '["name"~"^Costco",i]'],
+    overpass: ['["brand"="Costco"]', '["name"="Costco"]', '["name"="Costco Wholesale"]'],   // exact names are fast; a name pattern is not
     test: (tags) => tags.brand === "Costco" || /^costco/i.test(tags.name || "") },
   { key: "feed", label: "Feed store",
-    overpass: ['["shop"="agrarian"]', `["shop"~"^(${FARM_SHOP_TYPES.join("|")})$"]["name"~"feed|tractor supply",i]`],
+    // Exact tags only: asking the server to search every shop name for "feed" takes too long and fails the whole lookup.
+    // Hardware stores are fetched anyway (see above), and the test below still spots a feed store among them by name.
+    overpass: ['["shop"="agrarian"]', '["shop"~"^(farm|country_store)$"]', '["name"="Tractor Supply Co."]', '["name"="Tractor Supply"]', '["brand"="Tractor Supply Company"]'],
     test: (tags) => tags.shop === "agrarian"
       || (FARM_SHOP_TYPES.includes(tags.shop) && /feed|tractor supply/i.test(tags.name || "")) },
   { key: "vet", label: "Veterinarian",
@@ -608,9 +610,11 @@ const PLACE_GROUPS = [
 const PLACE_SEARCH_RADII_M = [12000, 25000, 80000, 120000];   // small first, so towns and cities do not return huge lists
 const OVERPASS_ENDPOINTS = [
   "https://overpass-api.de/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",   // backup servers, used in order if the one before fails
+  "https://overpass.openstreetmap.fr/api/interpreter",   // backup servers, used in order if the one before fails
+  "https://overpass.kumi.systems/api/interpreter",
   "https://overpass.private.coffee/api/interpreter",
 ];
+let overpassPreferred = 0;   // the server that answered last time; the next request tries it first
 
 function buildPlacesQuery(lat, lon, radiusM, kinds) {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("Bad coordinates");
@@ -630,12 +634,16 @@ function overpassQuery(query) {
   return turn;
 }
 
-// One request, trying each server in turn. If all of them fail, the message says why each one did.
+// One request, trying each server in turn, starting with the one that worked last time. If all of them fail,
+// the message says why each one did.
 async function overpassRequest(query) {
   const failures = [];
-  for (const endpoint of OVERPASS_ENDPOINTS) {
+  for (let i = 0; i < OVERPASS_ENDPOINTS.length; i++) {
+    const index = (overpassPreferred + i) % OVERPASS_ENDPOINTS.length;
+    const endpoint = OVERPASS_ENDPOINTS[index];
     try {
-      const data = await getJSON(endpoint, { method: "POST", body: new URLSearchParams({ data: query }) }, 40000);
+      const data = await getJSON(endpoint, { method: "POST", body: new URLSearchParams({ data: query }) }, 30000);
+      overpassPreferred = index;
       return data.elements || [];
     } catch (error) {
       failures.push(`${endpoint.split("/")[2]}: ${error.message}`);   // the host name, then why it failed

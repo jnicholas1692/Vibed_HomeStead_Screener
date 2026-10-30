@@ -227,7 +227,7 @@ test("places: searches wider only for kinds not found yet; null when nothing is 
   assert.ok(queries[0].includes("around:12000") && queries[1].includes("around:25000"));   // small circles first
 });
 
-test("places: falls back to the second server when the first fails", async () => {
+test("places: falls back to another server when the first fails", async () => {
   const urls = [];
   const fetchFn = async (url) => {
     urls.push(String(url));
@@ -236,11 +236,11 @@ test("places: falls back to the second server when the first fails", async () =>
   };
   const app = loadScripts(["config.js", "sources.js"], { fetch: fetchFn });
   const places = plain(await app.get("lookupPlaces")(30.275, -98.4));
-  assert.ok(urls.some((u) => u.includes("kumi.systems")));
+  assert.ok(urls.some((u) => u.includes("overpass.openstreetmap.fr")));
   assert.equal(places.grocery, null);
 });
 
-test("places: both servers failing is reported as a failure", async () => {
+test("places: every server failing is reported as a failure", async () => {
   const fetchFn = async () => ({ ok: false, status: 504, text: async () => "timeout" });
   const app = loadScripts(["config.js", "sources.js"], { fetch: fetchFn });
   await assert.rejects(() => app.get("lookupPlaces")(30.275, -98.4), /HTTP 504/);
@@ -977,7 +977,7 @@ test("overpassQuery names each server that failed, and a failure does not block 
   let calls = 0;
   const fetchFn = async () => {
     calls += 1;
-    if (calls <= 3) return { ok: false, status: 504, text: async () => "timeout" };   // every server fails for the first request
+    if (calls <= 4) return { ok: false, status: 504, text: async () => "timeout" };   // every server fails for the first request
     return { ok: true, status: 200, text: async () => JSON.stringify({ elements: [{ id: 2 }] }) };
   };
   const app = loadScripts(["config.js", "sources.js"], { fetch: fetchFn });
@@ -987,6 +987,47 @@ test("overpassQuery names each server that failed, and a failure does not block 
   const error = await first;
   assert.match(error.message, /busy or slow/);
   assert.match(error.message, /overpass-api\.de: HTTP 504/);
+  assert.match(error.message, /overpass\.openstreetmap\.fr: HTTP 504/);
   assert.match(error.message, /overpass\.kumi\.systems: HTTP 504/);
   assert.equal((await second).length, 1);
+});
+
+test("overpassQuery goes first to the server that answered last time", async () => {
+  const urls = [];
+  const fetchFn = async (url) => {
+    urls.push(String(url));
+    if (String(url).includes("overpass-api.de")) return { ok: false, status: 406, text: async () => "not acceptable" };
+    return { ok: true, status: 200, text: async () => JSON.stringify({ elements: [] }) };
+  };
+  const app = loadScripts(["config.js", "sources.js"], { fetch: fetchFn });
+  const query = app.get("overpassQuery");
+  await query("one");   // the first server fails, the second answers
+  await query("two");   // so the second one is asked first this time
+  assert.equal(urls.length, 3);
+  assert.ok(urls[0].includes("overpass-api.de") && urls[1].includes("openstreetmap.fr") && urls[2].includes("openstreetmap.fr"));
+});
+
+test("the places query asks for exact names and tags, never a name pattern", () => {
+  const app = loadScripts(["config.js", "sources.js"]);
+  const query = app.get("buildPlacesQuery")(30, -98, 12000, app.get("PLACE_KINDS"));
+  assert.ok(!/\["name"~/.test(query), query);   // a name pattern makes the server search every name, which times out
+  assert.ok(query.includes('["brand"="Costco"]') && query.includes('["shop"="agrarian"]'));
+});
+
+// ---- Clear data ----
+test("clearAllData erases what was saved and goes back to the defaults", () => {
+  const stored = {};
+  const localStorage = { getItem: (k) => (k in stored ? stored[k] : null), setItem: (k, v) => { stored[k] = String(v); }, removeItem: (k) => { delete stored[k]; } };
+  const document = { getElementById: () => ({}) };
+  const app = loadScripts(["config.js", "scoring.js", "storage.js"], { localStorage, document });
+  app.get("parcels").push({ id: "a", name: "Test" });
+  app.get("saveParcels")();
+  app.get("writeStored")("homestead-screener.settings.v1", { priceTarget: 1 });
+  app.get("writeStored")("homestead-screener.view.v1", { sort: "price" });
+  assert.equal(Object.keys(stored).length, 3);
+  app.get("clearAllData")();
+  assert.deepEqual(Object.keys(stored), []);
+  assert.equal(app.get("parcels").length, 0);
+  assert.equal(app.get("settings.priceTarget"), app.get("DEFAULT_SETTINGS.priceTarget"));
+  assert.equal(app.get("view.sort"), app.get("DEFAULT_VIEW.sort"));
 });
