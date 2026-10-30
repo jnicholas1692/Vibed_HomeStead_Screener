@@ -4,7 +4,15 @@ Screen land parcels anywhere in the United States using free public data. Enter 
 
 It is a plain website: HTML, CSS and JavaScript with no build step and no server. Your parcels and criteria are saved in your own browser (localStorage). Nothing is uploaded to an account.
 
-**Live demo:** https://YOUR-USERNAME.github.io/homestead-screener/
+**Live site:** https://jnicholas1692.github.io/Vibed_HomeStead_Screener/
+
+## About this project
+
+This is a personal test of AI-assisted development. I am using it to see how far a working tool can get when an AI assistant (Claude) writes the code and I direct it, review it and test it. It is a learning project, not a finished product or professional advice.
+
+- The data comes from free public sources and can be wrong, out of date or missing. Treat every result as a starting point and check it with the county, the surveyor, the lender and the agencies named in each report section before you rely on it.
+- Some of those free services are slow, busy or change without notice, so a lookup that fails today may work tomorrow.
+- Everything stays in your own browser. There is no account and no server of mine. The address box sends what you type to photon.komoot.io for suggestions, and each lookup talks to the public service named in its report section.
 
 ## Features
 
