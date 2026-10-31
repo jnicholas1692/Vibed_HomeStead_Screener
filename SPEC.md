@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v2.0.2.
+> Last updated for v2.1.0.
 
 ## 1. Problem
 
@@ -43,7 +43,7 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R6 | Nearest grocery, hardware, Costco, feed store, vet | Five results per parcel or "none found"; search radius widens in steps; busy server is retried on a mirror | `feature/nearby-places` (e2975a5) |
 | R7 | Road drive times | Routed minutes when OSRM answers; clearly marked estimates when it does not | `feature/road-drive-times` (9327fb8) |
 | R8 | Sort and filter | Sort by score, price, internet speed or airport time; filter by status; hide dealbreakers; choice survives reload | `feature/sort-and-filter` (22efcf8) |
-| R9 | Work anywhere in the US | County plus state shown; hunting list accepts state; non-US coordinates rejected with a hint; map opens on the whole country | `feature/nationwide` (a4b677a) |
+| R9 | Work anywhere in the US | County plus state shown; non-US coordinates rejected with a hint; map opens on the whole country | `feature/nationwide` (a4b677a) |
 | R10 | Compare up to three parcels | Best value per row starred only when values differ; fourth pick refused with a message | `feature/compare` (c7da63e) |
 | R11 | Rough cost estimate | All rates editable; every screen says they are placeholders; very limited soil uses the engineered septic price | `feature/monthly-cost` (5e01219) |
 | R12 | Print and copy a summary | Print shows only the open parcel; copy falls back to a text box if the clipboard is refused | `feature/print-summary` (e17d465) |
@@ -74,18 +74,23 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R37 | 30-year FHA and conventional loans | The cost section compares your land loan with a conventional and an FHA 30-year loan at the same price: down payment (raised to the loan's minimum of 3% or 3.5% and flagged), amount borrowed, rate, principal and interest, mortgage insurance (PMI under 20% down; FHA 1.75% upfront added to the loan plus a yearly premium for 11 years at 10% down or more, otherwise for the whole loan), tax and insurance, and monthly total; it says bare land cannot be financed this way and flags an FHA loan above the national limit floor | `feature/loans-usda` |
 | R38 | USDA loan area | A Yes or No in the list, the report and the compare table: Yes when the point is outside every ineligible area on USDA Rural Development's single family housing eligibility map; the report says income limits and a home purchase still apply | `feature/loans-usda` |
 | R39 | Drag to reorder report sections | In Settings each section row has a drag handle; dragging a row moves it live, scrolls the window near its edges, and the Up and Down buttons still work for the keyboard | `feature/drag-order` |
-| R40 | Skill tree scoring | Settings > Scoring has 10 points to spend on septic, slope, rain, airport, price, hunting county and internet with plus and minus buttons and a points-left counter; a factor with 0 points is not scored; saving needs at least one point; weights saved by older versions are converted once into whole points (flood dropped) | `feature/skill-tree-scoring` |
+| R40 | Skill tree scoring | Settings > Scoring has 10 points to spend on septic, slope, rain, airport, price and internet with plus and minus buttons and a points-left counter; a factor with 0 points is not scored; saving needs at least one point; weights saved by older versions are converted once into whole points (flood dropped) | `feature/skill-tree-scoring` |
 | R41 | Dealbreaker switch per criterion | Each factor and the flood zone has a Dealbreaker switch: flood in a high-risk zone, septic very limited, slope / rain / price at the zero end of the range, airport drive over the limit, not in a hunting county, no wired or fixed wireless internet or speed at the zero end; missing data never triggers one; older settings keep flood and airport on | `feature/skill-tree-scoring` |
 | R42 | Flood zone as Yes or No | The list, the report and the compare table say Yes (with the zone and "high risk") or No (with the zone) or Unknown; it is not in the factor table | `feature/skill-tree-scoring` |
 | R43 | Settings tabs | Settings has Scoring, Costs and loans, and Report layout tabs; an error on another tab opens that tab | `feature/skill-tree-scoring` |
 | R44 | Pinned action buttons | Settings (with its tabs), the Add and Edit window and the Compare window keep their buttons at the top while the window scrolls | `feature/skill-tree-scoring` |
 | R45 | Groundwater via USGS Water Data API | Three calls (well list in a box, latest depth reading, names); nearest 3 wells shown with measured date and age; notice when all are over 10 years old | `fix/groundwater-new-usgs-api2` |
+| R46 | Hover explanations everywhere | Every data label, table header, button and Settings option has a hover or keyboard-focus explanation; the septic tip spells out the 100 / 60 / 15 scores and factor tips follow the current ranges | `feature/tooltips-texas-no-hunting` |
+| R47 | Hunting removed | No hunting county list, factor, dealbreaker or text; old saved hunting weights are dropped on load | `feature/tooltips-texas-no-hunting` |
+| R48 | Texas details | For Texas parcels only: appraisal-district parcel record (acres, land and market value; owner details are never read), groundwater conservation district, school district, nearby TWDB wells, pipelines and oil and gas wells (Railroad Commission), Edwards Aquifer recharge zone | `feature/tooltips-texas-no-hunting` |
+| R49 | More local conditions | County population, income and broadband (Census), current drought category, weather office and alerts, wind and humidity (NASA POWER), nearby regulated facilities (EPA ECHO); each fails on its own | `feature/tooltips-texas-no-hunting` |
+| R50 | Collapsible categories | The report is grouped into six collapsible categories (Overview; Land, soil and water; Access and services; Climate, hazards and area; Texas; Cost and loans) with Expand all / Collapse all; open state is remembered and all open when printing | `feature/tooltips-texas-no-hunting` |
 
 ## 5. Scoring rules
 
 Schools, emergency services, hazards and hardiness zones are shown but not scored. Whether a parcel is "good" on these depends on the buyer (children, gardening plans, risk tolerance), so the app presents them and leaves the weighing to you.
 
-Default points (editable, 10 in total): septic 2, airport 2, price 2, slope 1, rain 1, internet 1, hunting 1. Flood zone is not scored; it is a Yes or No.
+Default points (editable, 10 in total): septic 2, airport 2, price 2, slope 1, rain 1, internet 2. Flood zone is not scored; it is a Yes or No.
 
 - Each factor maps to 0 to 100 between a "full marks" value and a "zero" value (for example price: full marks at or below $100,000, zero at or above $150,000).
 - Missing data removes the factor from both numerator and denominator.
@@ -111,9 +116,18 @@ Default points (editable, 10 in total): septic 2, airport 2, price 2, slope 1, r
 | Climate, frost, solar | Open-Meteo archive (ERA5 model, 10 years) | Grid about 10 km wide, so low ground and hilltops can differ by weeks; solar output is a flat-panel rule of thumb |
 | Road access | OpenStreetMap via Overpass | Shows a road nearby, not legal access; private roads are often unmarked |
 | Wetlands | US Fish and Wildlife Service National Wetlands Inventory | Screening map, not a delineation; small or seasonal wetlands missed |
-| Public and protected land | USGS PAD-US (Public_Access layer) | Unknown-access areas left out; "open" does not mean hunting is allowed |
+| Public and protected land | USGS PAD-US (Public_Access layer) | Unknown-access areas left out; "open" does not mean any particular use is allowed |
 | County property tax rate | Census American Community Survey 5-year, tables B25103 and B25077 | Median for homes, so vacant land and farm exemptions can differ; needs a free key |
 | Groundwater | USGS National Water Information System (gwlevels) | A monitoring well is not your lot; may tap a different aquifer than a household well |
+| Texas parcel record | Texas Geographic Information Office land parcels (identify request) | Appraisal-district data, not a survey; owner fields are discarded |
+| Texas wells and districts | TWDB groundwater database, groundwater conservation districts, TEA school districts | Reported wells near the point, not your lot |
+| Texas oil, gas and pipelines | Railroad Commission of Texas GIS | Pipelines within half a mile, wells within a mile; mineral rights are not shown |
+| Edwards Aquifer | Texas Commission on Environmental Quality recharge zone layer | Screening only |
+| Drought | US Drought Monitor current weekly map (ArcGIS service) | Weekly snapshot; no shape at the spot means no drought |
+| Weather office, alerts | National Weather Service api.weather.gov | Snapshot of when fetched |
+| Wind and humidity | NASA POWER annual climatology | Grid cells about 50 km wide |
+| Regulated facilities | EPA ECHO | Counts facilities within 2 miles; not a pollution reading |
+| County profile | Census ACS 5-year, county | The Census blocks browser requests without a free key, so this and the tax rate may ask for one |
 
 ## 7. Architecture
 
@@ -138,7 +152,7 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 
 ## 10. Testing
 
-- 119 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
+- 133 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
 - A browser test script with mocked services was used during development and is not part of the repository.
 - Live checks against real services are manual (see the tutorial).
 

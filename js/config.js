@@ -5,9 +5,9 @@
    ===================================================================== */
 const DEFAULT_SETTINGS = {
   // The skill tree: POINT_BUDGET points to spend across the factors that matter most. A factor with 0 points is not scored.
-  points: { septic: 2, slope: 1, rain: 1, airport: 2, price: 2, hunting: 1, internet: 1 },
+  points: { septic: 2, slope: 1, rain: 1, airport: 2, price: 2, internet: 2 },
   // Which factors rule a parcel out completely when they hit their worst end. Flood is not scored; it is a yes or no.
-  dealbreakers: { flood: true, septic: false, slope: false, rain: false, airport: true, price: false, hunting: false, internet: false },
+  dealbreakers: { flood: true, septic: false, slope: false, rain: false, airport: true, price: false, internet: false },
   priceTarget: 100000, priceMax: 150000,        // full marks at or below target, zero at or above max
   slopeIdeal: 5, slopeMax: 20,                   // slope in percent
   rainFull: 35, rainZero: 15,                    // average inches of rain per year
@@ -15,7 +15,6 @@ const DEFAULT_SETTINGS = {
   airportFullMin: 75, airportMaxMin: 120,        // drive minutes; beyond the max is a dealbreaker
   internetFullMbps: 100, internetZeroMbps: 5,    // best non-satellite download speed
   censusKey: "",                                 // optional free Census API key, needed for the county tax rate
-  huntingCounties: [],                           // counties where you confirmed you can hunt
   // Placeholders for the rough cost estimate. Replace them with real quotes for the area you are searching.
   costs: {
     downPayment: 20000,                            // cash down payment in dollars (used for every loan below, never more than the price)
@@ -34,16 +33,16 @@ const DEFAULT_SETTINGS = {
   airportMode: "auto",
   airports: [],
   // The order of the sections in a parcel's report (keys from REPORT_SECTIONS).
-  reportOrder: ["data", "internet", "places", "publicLand", "groundwater", "wetlands", "roads", "climate", "soilDetails", "hazards", "cost"],
+  reportOrder: ["data", "soilDetails", "groundwater", "wetlands", "publicLand", "roads", "places", "internet", "climate", "hazards", "more", "texas", "cost"],
 };
 
 // The report sections you can reorder. The score and factor table always come first,
 // and the data sources and your notes always come last.
 const REPORT_SECTIONS = [
-  ["data", "What the data says"], ["internet", "Internet"], ["places", "Nearby"],
-  ["publicLand", "Public and protected land"], ["groundwater", "Groundwater"], ["wetlands", "Wetlands"],
-  ["roads", "Road access"], ["climate", "Climate and solar"], ["soilDetails", "Soil details"],
-  ["hazards", "Natural hazards"], ["cost", "Rough cost"],
+  ["data", "What the data says"], ["soilDetails", "Soil details"], ["groundwater", "Groundwater"],
+  ["wetlands", "Wetlands"], ["publicLand", "Public and protected land"], ["roads", "Road access"],
+  ["places", "Nearby"], ["internet", "Internet"], ["climate", "Climate and solar"],
+  ["hazards", "Natural hazards"], ["more", "More local conditions"], ["texas", "Texas details"], ["cost", "Rough cost"],
 ];
 
 // Cleans up a saved section order: unknown or repeated names are dropped, and any section
@@ -57,6 +56,17 @@ function normalizeReportOrder(saved) {
   for (const key of known) if (!order.includes(key)) order.push(key);
   return order;
 }
+
+// The report sections gathered into collapsible categories: [key, heading, the sections inside it].
+// Every section in REPORT_SECTIONS must be in exactly one category (a test checks this).
+const REPORT_GROUPS = [
+  ["overview", "Overview", ["data"]],
+  ["land", "Land, soil and water", ["soilDetails", "groundwater", "wetlands", "publicLand"]],
+  ["access", "Access and services", ["roads", "places", "internet"]],
+  ["climate", "Climate, hazards and area", ["climate", "hazards", "more"]],
+  ["texas", "Texas", ["texas"]],
+  ["money", "Cost and loans", ["cost"]],
+];
 
 // How the list is sorted and filtered when you first open the page.
 const DEFAULT_VIEW = { sort: "score", status: "all", hideDealbreakers: false };
@@ -103,7 +113,7 @@ function normalizePoints(saved) {
 
 const FACTOR_LABELS = {
   septic: "Septic suitability", slope: "Slope", rain: "Rainfall",
-  airport: "Airport distance", price: "Price", hunting: "Hunting county", internet: "Internet",
+  airport: "Airport distance", price: "Price", internet: "Internet",
 };
 
 const HIGH_RISK_FLOOD_ZONES = new Set(["A", "AE", "AH", "AO", "AR", "A99", "V", "VE"]);
@@ -247,6 +257,17 @@ const DATA_SOURCES = {
   publicLand:   { label: "Public and protected land", name: "USGS Protected Areas Database of the US (PAD-US)",      url: "https://www.usgs.gov/programs/gap-analysis-project/science/pad-us-data-overview", vintage: "current PAD-US release" },
   groundwater:  { label: "Groundwater",            name: "USGS Water Data API (field measurements of groundwater level)", url: "https://waterdata.usgs.gov/",                  vintage: "latest measurement at each well; many are decades old" },
   usda:         { label: "USDA loan area",           name: "USDA Rural Development Single Family Housing eligibility map (ineligible areas)", url: "https://eligibility.sc.egov.usda.gov/eligibility/", vintage: "current USDA map" },
+  censusProfile:{ label: "County profile",         name: "US Census Bureau American Community Survey, 5-year estimates", url: "https://www.census.gov/programs-surveys/acs", vintage: "ACS 5-year estimates for the county" },
+  drought:      { label: "Drought status",           name: "US Drought Monitor (current weekly map, National Drought Mitigation Center)", url: "https://droughtmonitor.unl.edu/", vintage: "the latest weekly map" },
+  nws:          { label: "Weather office and alerts", name: "National Weather Service API", url: "https://www.weather.gov/documentation/services-web-api", vintage: "live; alerts are those in effect right now" },
+  power:        { label: "Wind and humidity",        name: "NASA POWER climatology", url: "https://power.larc.nasa.gov/", vintage: "long-term averages from NASA satellite and weather model data" },
+  echo:         { label: "Regulated facilities",     name: "EPA Enforcement and Compliance History Online (ECHO)", url: "https://echo.epa.gov/", vintage: "current ECHO facility records" },
+  txParcel:     { label: "Texas appraisal parcel",  name: "Texas Geographic Information Office (TxGIO) StratMap land parcels, from the county appraisal districts", url: "https://tnris.org/stratmap/land-parcels/", vintage: "most recent statewide parcel release; values are for the tax year shown" },
+  txGcd:        { label: "Groundwater district",     name: "Texas Water Development Board, Groundwater Conservation Districts", url: "https://www.twdb.texas.gov/mapping/gisdata.asp", vintage: "current TWDB boundaries" },
+  txSchool:     { label: "School district",          name: "Texas Legislative Council statewide school district boundaries", url: "https://tlc.texas.gov/", vintage: "2019-2020 boundaries, so a recent change may be missing" },
+  txWells:      { label: "Nearby water wells",       name: "Texas Water Development Board Groundwater Database", url: "https://www.twdb.texas.gov/groundwater/data/index.asp", vintage: "current database; wells are reported by drillers and districts over many decades" },
+  txRrc:        { label: "Oil, gas and pipelines",   name: "Railroad Commission of Texas public GIS", url: "https://www.rrc.texas.gov/resource-center/research/gis-viewer/", vintage: "current RRC maps" },
+  txEdwards:    { label: "Edwards Aquifer zone",     name: "Edwards Aquifer Recharge Zone boundary (TCEQ, 2005) as published by the City of Austin", url: "https://www.tceq.texas.gov/gis/metadata/edwards_met.html", vintage: "TCEQ boundary adopted 2005" },
   costs:        { label: "Rough cost",               name: "Placeholder rates and prices from your Criteria",        url: null,                                                       vintage: "your settings; the county tax rate comes from the Census ACS when known" },
 };
 
@@ -260,7 +281,7 @@ const GLOSSARY = {
   "Slope (steepest of 4 directions)": { source: "elevation", text: "How steeply the ground drops, as a percent: 10% means 10 feet of drop in 100 feet. The app compares the point with the ground a short way north, south, east and west and keeps the steepest. Steep ground raises driveway, foundation and septic costs." },
   "Soil": { source: "soil", text: "Name of the main soil at the point. Each name covers a mapped area that can include small patches of other soils." },
   "Drainage class": { source: "soil", text: "How fast water leaves the soil after rain, from very poorly drained (wet much of the year) to excessively drained (water drains very fast). Well drained is usually best for homes and septic systems." },
-  "Septic rating": { source: "soil", text: "The USDA's rating of how well the soil works for a septic drain field: not limited, somewhat limited or very limited. It is a screening rating. A county site evaluation and percolation test decide what is allowed." },
+  "Septic rating": { source: "soil", text: "The USDA's rating of how well the soil works for a septic drain field: not limited, somewhat limited or very limited. It is a screening rating. A county site evaluation and percolation test decide what is allowed. In the score, Not limited counts 100, Somewhat limited 60 and Very limited 15." },
   "Average yearly rain": { source: "rain", text: "Average rain in inches a year, worked out from several recent years of daily weather model data. The model grid is about 10 km wide, so a single lot can differ." },
   "Nearest airport": { source: "airport", text: "Closest airport on the app's list. Shows the road distance and drive time when a route could be found, otherwise a straight-line distance and an estimated drive time." },
   "Plant hardiness zone": { source: "hardiness", text: "USDA zone based on the average coldest winter night. Each zone is 10 F wide and split into halves (a and b) of 5 F. A higher number means milder winters. Looked up by ZIP code, so it can differ a little at your lot." },
@@ -296,20 +317,20 @@ const GLOSSARY = {
   "Nearest road": { source: "roads", text: "Closest drivable road in OpenStreetMap to your point. It shows a road nearby, not that your parcel touches it or that you may use it." },
   "Nearest paved public road": { source: "roads", text: "Closest road that looks paved and open to the public. Roads marked private, and most service roads and driveways, are skipped. Surface and access tags are volunteer-entered and sometimes missing." },
   // ---- compare table ----
-  "Score": { text: "The parcel's overall score from 0 to 100, a weighted average of the factors that had data. Weights are set in Criteria." },
-  "Dealbreakers": { text: "Problems you told the app to treat as disqualifying in Criteria, such as a high-risk flood zone." },
+  "Score": { text: "The parcel's overall score from 0 to 100, a points-weighted average of the factors that had data. The points are set in Settings." },
+  "Dealbreakers": { text: "Problems you told the app to treat as disqualifying with the Dealbreaker switches in Settings, such as a high-risk flood zone." },
   "USDA loan area": { source: "usda", text: "Whether the spot is in an area where USDA Rural Development guaranteed home loans are available. \"Yes\" means it is not inside one of USDA's mapped ineligible (more built-up) areas. It says nothing about income limits (the buyer's household income must be under a limit), about the buyer's credit, or about the property: USDA loans buy a home, not bare land. Check the exact address on USDA's own map." },
   "Asking price": { text: "The price you entered for the parcel." },
   "Price per acre": { text: "Asking price divided by acres." },
-  "Rough monthly cost": { source: "costs", text: "Estimated monthly cost of owning the land (loan, property tax, insurance, and so on) from the rates in Criteria. It is not a quote." },
-  "Rough start-up cost (septic + well)": { source: "costs", text: "One-time estimate for a septic system and a well from the placeholder prices in Criteria. Local contractors can quote real prices." },
+  "Rough monthly cost": { source: "costs", text: "Estimated monthly cost of owning the land (loan, property tax, insurance, and so on) from the rates in Settings. It is not a quote." },
+  "Rough start-up cost (septic + well)": { source: "costs", text: "One-time estimate for a septic system and a well from the placeholder prices in Settings. Local contractors can quote real prices." },
   "Acres": { text: "Size of the parcel, as you entered it. The app does not know parcel boundaries." },
-  "Septic suitability": { source: "soil", text: "The USDA's rating of how well the soil works for a septic drain field. A county site evaluation decides what is allowed." },
+  // (Septic suitability and the other scored factors are explained in FACTOR_TIPS below, with your current settings filled in.)
   "Slope": { source: "elevation", text: "How steeply the ground drops, as a percent. Steep ground raises driveway, foundation and septic costs." },
   "Rain per year": { source: "rain", text: "Average rain in inches a year, from several recent years of weather model data." },
   "Drive to airport": { source: "airport", text: "Drive time to the nearest airport on the app's list, from a road route when one was found, otherwise estimated from the straight-line distance." },
   "Internet (best non-satellite)": { source: "internet", text: "Fastest download speed (Mbps) that home-internet providers reported for your census block, leaving satellite out. Reported maximums are often higher than what you would really get, and the FCC data is older than today's coverage." },
-  "Public or protected land": { source: "publicLand", text: "Nearest parks, forests, refuges and other protected areas, up to 25 miles. Neighboring public land can bring quiet views, or crowds, hunting and fire risk." },
+  "Public or protected land": { source: "publicLand", text: "Nearest parks, forests, refuges and other protected areas, up to 25 miles. Neighboring public land can bring quiet views, or crowds and fire risk." },
   "Mapped wetlands": { source: "wetlands", text: "Whether the point is on a mapped wetland, and how many are within a quarter mile. Ponds and lakes count. This is a screening map, not a legal wetland boundary." },
   "Groundwater depth (nearest well)": { source: "groundwater", text: "Depth to water in the nearest USGS monitoring well. A monitoring well is not your lot, and water depth can differ a lot over a mile." },
   "Days over 100 F per year": { source: "climate", text: "Average number of days a year with a high of at least 100 F." },
@@ -322,10 +343,132 @@ const GLOSSARY = {
   "Natural hazard risk (FEMA)": { source: "hazards", text: "FEMA's overall risk rating for the census tract, compared with the rest of the US. It is modeled risk, not a forecast." },
   "Hazards rated high or very high": { source: "hazards", text: "How many of the 18 hazards FEMA rates (tornado, wildfire, hail, flooding and so on) are rated high or very high for the census tract." },
   "Status": { text: "Where the parcel stands in your search, as you set it." },
-  // ---- factor table ----
-  "Rainfall": { source: "rain", text: "Yearly rain compared with the range set in Criteria." },
-  "Airport distance": { source: "airport", text: "Drive time to the nearest airport compared with the range set in Criteria." },
-  "Price": { text: "Asking price compared with your budget range in Criteria." },
-  "Hunting county": { text: "Whether the county is on your hunting-county list in Criteria." },
-  "Internet": { source: "internet", text: "Best non-satellite download speed compared with the range set in Criteria." },
+  // ---- more local conditions ----
+  "County population": { source: "censusProfile", text: "People living in the whole county, from the Census Bureau's 5-year survey estimates. A small number usually means few services, long response times and a small job market nearby." },
+  "County median household income": { source: "censusProfile", text: "The middle household income in the county (half earn more, half less). It hints at local wages and what neighbors can afford, which affects services, schools and resale." },
+  "County median age": { source: "censusProfile", text: "The middle age of county residents. A high median age often means a retirement area, with fewer school-age children." },
+  "County median home value": { source: "censusProfile", text: "The middle value owners give their homes in the county. It is a rough gauge of what land plus a house sells for nearby." },
+  "Households with broadband (county)": { source: "censusProfile", text: "Share of county households with a broadband internet subscription of any kind, including cellular and satellite. It is a survey result for the whole county, not the availability at your spot." },
+  "Drought now": { source: "drought", text: "The category of the latest US Drought Monitor weekly map at this spot: D0 abnormally dry, D1 moderate, D2 severe, D3 extreme or D4 exceptional drought. No drought means the spot is outside every drought area on the map. Drought matters for wells, ponds, grass and fire risk." },
+  "Weather service office": { source: "nws", text: "The National Weather Service forecast office that covers this spot, and a nearby town. Its website has forecasts, past storms and local warnings." },
+  "Weather alerts now": { source: "nws", text: "Weather watches, warnings and advisories in effect at this spot right now, according to the National Weather Service. They change hour by hour, so this is only a snapshot from when the data was fetched." },
+  "Average wind speed": { source: "power", text: "Yearly average wind speed at 10 meters (about 33 feet) above ground. Small wind turbines usually need an average of about 10 mph or more to make sense. Treetops, hills and buildings change the wind at your site." },
+  "Average humidity": { source: "power", text: "Yearly average relative humidity at 2 meters above ground. High humidity means mold, rust and wood rot are bigger worries, and it makes heat feel worse." },
+  "Regulated facilities within 2 miles": { source: "echo", text: "Factories, plants, landfills, fuel terminals and other sites that hold an environmental permit with the EPA, counted within two miles. A high count points to industrial neighbors; open the EPA's ECHO site for each one's violation record." },
+  // ---- Texas details (shown only for parcels in Texas) ----
+  "Appraisal district acres": { source: "txParcel", text: "Acres on record at the county appraisal district for the parcel under your point. If it differs a lot from the acres you entered, you may have picked a neighboring parcel or one tract of a larger deed." },
+  "Appraised land value": { source: "txParcel", text: "What the appraisal district values the land alone at for property tax. Texas values qualifying farm and ranch land by what it can earn from farming or grazing, so this is often far below what the land would sell for. It is not a price." },
+  "Appraised total value": { source: "txParcel", text: "The appraisal district's market value for land plus buildings and other improvements, for the tax year shown. Use it as a clue about size and development, not as a price." },
+  "Land use (appraisal district)": { source: "txParcel", text: "How the appraisal district classifies the parcel, such as vacant land, farm or ranch, or residential. The wording differs from county to county." },
+  "Groundwater district": { source: "txGcd", text: "A groundwater conservation district is a local government that manages well drilling and water use in its area. Inside one you usually must register or get a permit for a well, and there may be spacing or pumping limits. Outside one, Texas rules for private wells are lighter. Ask the district before you buy." },
+  "School district": { source: "txSchool", text: "The public school district for the spot, which also sets a large part of your property tax bill. The district lines are from 2019-2020, so confirm with the appraisal district or the school before relying on them." },
+  "Water wells nearby": { source: "txWells", text: "Wells in the Texas Water Development Board database near your spot: how many there are, and the middle (median) and range of their drilled depth. Depth is how far down the well was drilled, not how deep the water sits, and many wells are old." },
+  "Aquifer (nearby wells)": { source: "txWells", text: "The aquifer most often recorded for the nearby wells. An aquifer is the underground rock or sand that holds the water wells pump. Aquifers differ a lot in how much water they give and how fast it is used up." },
+  "Oil and gas wells within 1 mile": { source: "txRrc", text: "Wells in the Railroad Commission of Texas records, including oil, gas and injection or disposal wells, within one mile. They can bring noise, traffic, flaring, odors and spill risk. Also check who owns the minerals under the land, which this app cannot see." },
+  "Pipelines within half a mile": { source: "txRrc", text: "Pipeline segments in Railroad Commission records within half a mile, with the operators and what they carry. A pipeline easement can limit where you can build or dig." },
+  "Edwards Aquifer recharge zone": { source: "txEdwards", text: "The area where rain soaks quickly into the Edwards Aquifer, a major water supply for the San Antonio and Austin region. Building, septic systems and other work there fall under extra state water-protection rules (30 TAC Chapter 213) and need approval from the Texas Commission on Environmental Quality (TCEQ). Land just outside it may still drain toward it." },
+  // ---- the factor table (the scored factors are explained in FACTOR_TIPS below, with your settings filled in) ----
+  "Factor": { text: "One thing the app scores. Each factor gets a score from 0 to 100, and the total is an average weighted by your points." },
+  "Points": { text: "Your share of the 10 points in Settings. A factor with more points pulls the total score harder. 0 points means the factor is not scored." },
+};
+
+// Explanations of the scored factors. Each is a function so it can show the ranges from your current Settings.
+// (The scoring itself is in scoring.js; this text must agree with it.)
+const FACTOR_TIPS = {
+  "Septic suitability": (s) => `How well the soil suits a septic drain field, from the USDA soil survey. Not limited scores 100, Somewhat limited 60 and Very limited 15. This is a screening rating: a county site evaluation and percolation test decide what is allowed. ${s.dealbreakers.septic ? "Dealbreaker is on: a Very limited rating rules the parcel out." : "Turn on its Dealbreaker switch to rule out Very limited soil."}`,
+  "Slope": (s) => `How steep the ground is. Scores 100 at ${s.slopeIdeal}% or flatter and 0 at ${s.slopeMax}% or steeper, evenly in between. Steep ground costs more for driveways, foundations and septic systems.`,
+  "Rainfall": (s) => `Average yearly rain. Scores 100 at ${s.rainFull} inches a year and 0 at ${s.rainZero} inches a year, evenly in between. Rain matters for gardens, ponds and rainwater catchment, and what counts as enough depends on the region.`,
+  "Airport distance": (s) => `Drive time to the nearest airport. Scores 100 at ${s.airportFullMin} minutes or less and falls to 0 at ${s.airportMaxMin} minutes. Beyond ${s.airportMaxMin} minutes it is a dealbreaker if that switch is on. A road route is used when one is found, otherwise an estimate from straight-line distance.`,
+  "Price": (s) => `Asking price. Scores 100 at ${money(s.priceTarget)} or less and 0 at ${money(s.priceMax)} or more, evenly in between.`,
+  "Internet": (s) => `Fastest download speed offered by wired or fixed wireless providers at the census block (satellite left out). Scores 100 at ${s.internetFullMbps} Mbps or more and 0 at ${s.internetZeroMbps} Mbps or less. If only satellite is listed it scores 25, and if no service is listed at all it scores 10.`,
+};
+
+// Explanations for the boxes in Settings, keyed by the setting's name.
+const SETTING_TIPS = {
+  priceTarget: "Asking price at or below this scores 100 for the Price factor.",
+  priceMax: "Asking price at or above this scores 0 for Price. Prices in between score evenly from 100 down to 0. It is also the dealbreaker line if that switch is on.",
+  slopeIdeal: "Slope (percent grade) at or below this scores 100. 10% means 10 feet of drop in 100 feet.",
+  slopeMax: "Slope at or above this scores 0. Slopes in between score evenly. It is also the dealbreaker line if that switch is on.",
+  rainFull: "Average yearly rain (inches) that scores 100. What is enough varies a lot by region, so set it for the area you are searching.",
+  rainZero: "Average yearly rain (inches) that scores 0. Amounts in between score evenly. It is also the dealbreaker line if that switch is on.",
+  airportFullMin: "Drive time to the airport (minutes) at or below which the Airport factor scores 100.",
+  airportMaxMin: "Drive time to the airport (minutes) at which the factor scores 0. A parcel farther than this is a dealbreaker if that switch is on.",
+  detourFactor: "When no road route is found, the app estimates road miles by multiplying straight-line miles by this number. 1.3 means roads are about 30% longer than a straight line.",
+  avgMph: "Average driving speed used to turn estimated road miles into minutes when no road route is found. Rural highways and back roads are slower than the speed limit.",
+  internetFullMbps: "Best non-satellite download speed (Mbps) that scores 100 for Internet.",
+  internetZeroMbps: "Best non-satellite download speed (Mbps) that scores 0. Speeds in between score evenly. It is also the dealbreaker line if that switch is on.",
+  "costs.downPayment": "Cash you plan to put down, in dollars. It is used for the land loan and both home loans, and never counts for more than the price.",
+  "costs.ratePct": "Yearly interest rate for a loan on the land itself. Land loans usually cost more than home loans, so ask local lenders and replace this guess.",
+  "costs.years": "How many years you would take to repay the land loan. Enter 0 to treat the land as paid in cash.",
+  "costs.taxPct": "Yearly property tax as a percent of the price, used when the county's own typical rate is not known or turned off below. Rates vary widely by state.",
+  "costs.insuranceMonthly": "Placeholder monthly cost to insure the land, in dollars. Replace it with a real quote.",
+  "costs.septicStandard": "Placeholder cost of a conventional septic system, used when the soil is not very limited for septic.",
+  "costs.septicEngineered": "Placeholder cost of an engineered septic system, used when the soil is very limited for septic. These cost more to design and install.",
+  "costs.well": "Placeholder cost of drilling a water well. Depth and rock make this swing widely, so get a local driller's quote.",
+  "costs.conventionalRatePct": "Yearly interest rate for a conventional 30-year home loan. Rates change daily; replace this with a lender's quote.",
+  "costs.fhaRatePct": "Yearly interest rate for an FHA 30-year home loan. This default is only a guess, so replace it with a lender's quote.",
+  "costs.pmiPct": "Private mortgage insurance on a conventional loan, as a percent of the loan per year. It applies when you put down less than 20%.",
+  "costs.fhaUpfrontPct": "FHA's upfront mortgage insurance, a percent of the loan paid at closing. Here it is added to the loan.",
+  "costs.fhaAnnualPct": "FHA's yearly mortgage insurance, as a percent of the loan. It lasts 11 years if you put down 10% or more, and otherwise for the whole loan.",
+};
+
+// Explanations for fixed parts of the page, keyed by element id. An input or select gets its tip on its label text; a button on itself.
+const UI_TIPS = {
+  "btn-add": "Add a parcel by address, a click on the map or coordinates. The app then looks up free public data for that spot.",
+  "btn-criteria": "Open Settings: the 10-point scoring, dealbreakers, cost and loan numbers, and the order of report sections.",
+  "btn-export": "Save all your parcels, notes and settings to a file you can keep or move to another browser.",
+  "btn-import": "Load parcels and settings from a file made by Export.",
+  "btn-clear": "Erase every parcel, note and setting stored in this browser. Export first if you want a copy.",
+  "sort-by": "Choose how the list is ordered.",
+  "filter-status": "Show only parcels with this status. You set a parcel's status inside its report.",
+  "hide-dealbreakers": "Hide parcels that hit a dealbreaker you switched on in Settings.",
+  "btn-compare": "Open a side-by-side table of the two or three parcels you ticked in the Pick column.",
+  "btn-demo": "Add three made-up parcels so you can see how the app works. Delete them when you are done.",
+  "btn-save": "Save the parcel and look up its data from the public sources.",
+  "f-name": "A label for the parcel. It follows the address unless you type your own.",
+  "f-address": "Optional. Pick a suggestion to fill in the coordinates. The text you type is sent to the photon.komoot.io address service.",
+  "f-lat": "Latitude of the spot, in decimal degrees (north is positive). All lookups use this exact point.",
+  "f-lon": "Longitude of the spot, in decimal degrees. In the US it is negative (west).",
+  "f-acres": "Size of the parcel in acres. The app cannot see parcel lines, so this is only what you enter.",
+  "f-price": "Asking price in US dollars. It feeds the Price score and the cost estimates.",
+  "btn-pick": "Close this window and click the map to set the location.",
+  "btn-reset-criteria": "Put every setting back to its starting value. Nothing changes until you also press Save settings.",
+  "tab-scoring": "Spend your 10 points and set dealbreakers and the ranges that decide each score.",
+  "tab-costs": "Placeholder numbers for the rough cost estimate and the home loan comparison.",
+  "tab-layout": "Choose the order of the sections in each parcel's report.",
+  "c-airport-mode": "Choose whether the airport factor uses the nearest major US airport or only airports you list.",
+  "c-airports": "One airport per line as: name, latitude, longitude. The nearest one counts.",
+  "c-airport-preset": "Pick an airport from the built-in list to add it to your list.",
+  "c-census-key": "A free key from the US Census Bureau. With it the app can look up your county's typical property tax rate.",
+  "c-use-county-tax": "When on, the cost estimate uses the county's typical property tax rate if it is known, instead of the percent above.",
+  "c-order-reset": "Put the report sections back in their starting order. Nothing changes until you press Save settings.",
+  "d-status": "Where the parcel stands in your search. It sets the Status filter in the list.",
+  "d-notes": "Your own notes. They are saved in this browser with the parcel, and printed with the report.",
+};
+
+// What each report category holds, shown when you hover its heading.
+const GROUP_TIPS = {
+  overview: "The main table: flood zone, elevation, slope, soil, rain, nearest airport, USDA loan area and hardiness zone. Click the heading to collapse or expand this category.",
+  land: "Soil details, groundwater, wetlands and nearby protected land. Click the heading to collapse or expand this category.",
+  access: "Roads, nearby places and services, and internet. Click the heading to collapse or expand this category.",
+  climate: "Climate and solar, natural hazards, and county, drought, wind and facility details. Click the heading to collapse or expand this category.",
+  texas: "Details from Texas state sources. This category only appears for parcels in Texas. Click the heading to collapse or expand it.",
+  money: "Rough monthly and start-up costs, with land, conventional and FHA loan numbers. Click the heading to collapse or expand this category.",
+};
+
+// What each report section shows, for the Report layout tab.
+const SECTION_TIPS = {
+  data: "The main table: coordinates, flood zone, elevation, slope, soil, rain, nearest airport, USDA loan area and hardiness zone.",
+  internet: "Providers and the top speeds they report at this spot, from FCC data.",
+  places: "Nearest towns, shops, schools, hospitals and emergency services, with drive times.",
+  publicLand: "Nearby parks, forests, refuges and other protected land.",
+  groundwater: "Depth to water in the closest monitoring wells, and when each was measured.",
+  wetlands: "Whether the spot is on or near a mapped wetland.",
+  roads: "The nearest road and the nearest paved public road.",
+  climate: "Freeze dates, hot days, snow and sunlight, with a rough solar estimate.",
+  soilDetails: "Soil texture, wetness, depth to rock, shrink-swell and how suitable the soil is for building.",
+  hazards: "FEMA's natural hazard risk ratings for the census tract.",
+  more: "County population, income and broadband, drought, weather alerts, wind and humidity, and nearby regulated facilities.",
+  texas: "Texas-only details: appraisal parcel, groundwater district, school district, nearby wells, oil and gas, and the Edwards Aquifer zone. Hidden for parcels outside Texas.",
+  cost: "Rough monthly cost and start-up cost, with land, conventional and FHA loan numbers.",
 };

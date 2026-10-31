@@ -6,6 +6,7 @@
 const PARCELS_KEY = "homestead-screener.parcels.v1";
 const SETTINGS_KEY = "homestead-screener.settings.v1";
 const VIEW_KEY = "homestead-screener.view.v1";
+const GROUPS_KEY = "homestead-screener.closed-groups.v1";   // which report categories are collapsed
 let storageOk = true;
 
 function readStored(key, fallback) {
@@ -41,7 +42,7 @@ function migrateCosts(costs, saved) {
 function loadPoints(saved) {
   if (saved.points && typeof saved.points === "object") return normalizePoints(saved.points);
   if (saved.weights && typeof saved.weights === "object") {
-    const { flood, ...rest } = saved.weights;     // flood is no longer scored
+    const { flood, hunting, ...rest } = saved.weights;     // flood is no longer scored, and hunting was removed
     return normalizePoints(pointsFromWeights({ ...DEFAULT_SETTINGS.points, ...rest }, POINT_BUDGET));
   }
   return { ...DEFAULT_SETTINGS.points };
@@ -61,7 +62,7 @@ function loadSettings() {
     dealbreakers: { ...DEFAULT_SETTINGS.dealbreakers, ...onlyBooleans(saved.dealbreakers) },
     costs: migrateCosts({ ...DEFAULT_SETTINGS.costs, ...(saved.costs || {}) }, saved),
     reportOrder: normalizeReportOrder(saved.reportOrder),
-    huntingCounties: Array.isArray(saved.huntingCounties) ? saved.huntingCounties : [],
+    huntingCounties: undefined,                     // removed in v2.1.0; old saved lists are ignored
     censusKey: typeof saved.censusKey === "string" ? saved.censusKey : "",
     // Your own airport list is only used if you chose "custom" and the list is not empty.
     airports: Array.isArray(saved.airports) ? saved.airports : [],
@@ -85,7 +86,7 @@ const saveParcels = () => writeStored(PARCELS_KEY, parcels);
 
 // Erases everything this app saved in this browser (parcels, criteria, list view) and starts again from the defaults.
 function clearAllData() {
-  for (const key of [PARCELS_KEY, SETTINGS_KEY, VIEW_KEY]) {
+  for (const key of [PARCELS_KEY, SETTINGS_KEY, VIEW_KEY, GROUPS_KEY]) {
     try { localStorage.removeItem(key); } catch { /* storage is blocked, so there is nothing saved to remove */ }
   }
   parcels = [];

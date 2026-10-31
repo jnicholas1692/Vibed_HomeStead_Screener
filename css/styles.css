@@ -256,3 +256,20 @@
 
   .brand .repo-link { font-size: 0.8rem; }
   .brand .repo-link a { color: var(--accent, inherit); }
+
+  /* collapsible report categories */
+  .group-tools { display: flex; gap: 8px; justify-content: flex-end; }
+  .rgroup { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+  .rgroup > summary { cursor: pointer; padding: 10px 12px; font-weight: 700; list-style: none; display: flex; align-items: center; gap: 8px; }
+  .rgroup > summary::-webkit-details-marker { display: none; }
+  .rgroup > summary::before { content: ""; width: 0.5em; height: 0.5em; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform 0.15s; flex: none; }
+  .rgroup[open] > summary::before { transform: rotate(45deg); }
+  .rgroup > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .rgroup-body { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .rgroup-body > h3:first-child { margin-top: 0; }
+  .order-group { margin-left: auto; min-width: 0; max-width: 45%; text-align: right; font-size: 0.8rem; }
+  @media print { .rgroup { border: 0; } .rgroup > summary::before { display: none; } }
+
+  .dlg-body > * { min-width: 0; }
+  .stack { min-width: 0; }
+  .order-list li { min-width: 0; }

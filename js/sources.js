@@ -860,7 +860,8 @@ async function lookupTaxRate(stateFips, countyFips, key) {
   try {
     data = await getJSON(`https://api.census.gov/data/${ACS_YEAR}/acs/acs5?${params}`, {}, 30000);
   } catch (error) {
-    if (error.notJson || /^HTTP 4/.test(error.message)) return { needsKey: true, keyRejected: Boolean(key) };
+    // Without a key the Census can answer with an error the browser is not allowed to read, which looks like "Failed to fetch".
+    if (error.notJson || /^HTTP 4/.test(error.message) || (!key && error.name === "TypeError")) return { needsKey: true, keyRejected: Boolean(key) };
     throw error;
   }
   return parseTaxRate(data, ACS_YEAR);
@@ -1126,6 +1127,277 @@ async function lookupGroundwater(lat, lon) {
 /* =====================================================================
    4. Looking up everything for one parcel
    ===================================================================== */
+/* ---- more local conditions (county profile, drought, weather alerts, wind, design rainfall, nearby regulated facilities) ---- */
+
+const NWS_URL = "https://api.weather.gov/";
+const POWER_URL = "https://power.larc.nasa.gov/api/temporal/climatology/point";
+const DROUGHT_URL = "https://services5.arcgis.com/0OTVzJS4K09zlixn/ArcGIS/rest/services/USDM_current/FeatureServer/0/query";
+const ECHO_URL = "https://echodata.epa.gov/echo/echo_rest_services.get_facilities";
+const ECHO_RADIUS_MILES = 2;
+
+// The Census returns blank or large negative numbers for "not available".
+const censusNumber = (v) => { const n = Number(v); return Number.isFinite(n) && n >= 0 ? n : null; };
+
+// ACS county profile: [header row, data row] -> { name, population, medianIncome, medianAge, medianHomeValue, broadbandPct, year }.
+function parseCountyProfile(data, year) {
+  if (!Array.isArray(data) || data.length < 2) return null;
+  const row = Object.fromEntries(data[0].map((name, i) => [name, data[1][i]]));
+  const withBroadband = censusNumber(row.B28002_004E), households = censusNumber(row.B28002_001E);
+  return {
+    name: row.NAME || null, year,
+    population: censusNumber(row.B01003_001E), medianIncome: censusNumber(row.B19013_001E),
+    medianAge: censusNumber(row.B01002_001E), medianHomeValue: censusNumber(row.B25077_001E),
+    broadbandPct: withBroadband != null && households ? Math.round(withBroadband / households * 100) : null,
+  };
+}
+
+async function lookupCountyProfile(stateFips, countyFips, key) {
+  if (!stateFips || !countyFips) return null;
+  const params = new URLSearchParams({ get: "NAME,B01003_001E,B19013_001E,B01002_001E,B25077_001E,B28002_001E,B28002_004E", for: `county:${countyFips}`, in: `state:${stateFips}` });
+  if (key) params.set("key", key);
+  try {
+    return parseCountyProfile(await getJSON(`https://api.census.gov/data/${ACS_YEAR}/acs/acs5?${params}`, {}, 30000), ACS_YEAR);
+  } catch (error) {
+    if (error.notJson || /^HTTP 4/.test(error.message) || (!key && error.name === "TypeError")) return { needsKey: true, keyRejected: Boolean(key) };
+    throw error;
+  }
+}
+
+// US Drought Monitor: the drought category (D0 to D4) of the current weekly map at the spot, if any. Where there is no drought
+// the map has no shape at all, so no feature means "none".
+const DROUGHT_NAMES = ["abnormally dry", "moderate drought", "severe drought", "extreme drought", "exceptional drought"];
+function summarizeDrought(features) {
+  if (!Array.isArray(features)) return null;
+  if (!features.length) return { level: null, name: "no drought", date: null };
+  const a = features[0].attributes || {};
+  const dm = Number(a.DM);
+  if (!Number.isInteger(dm) || dm < 0 || dm > 4) return null;
+  const when = Number(a.ValidStart || a.MapDate);
+  return { level: `D${dm}`, name: DROUGHT_NAMES[dm], date: Number.isFinite(when) ? new Date(when).toISOString().slice(0, 10) : null };
+}
+
+async function lookupDrought(lat, lon) {
+  const { features } = await arcgisFeatures(DROUGHT_URL, { geometry: `${lon},${lat}`, geometryType: "esriGeometryPoint", outFields: "DM,ValidStart,MapDate" }, "Drought map");
+  return summarizeDrought(features);
+}
+
+// National Weather Service: the forecast office for the spot, and any weather alerts in effect right now.
+function summarizeNws(points, alerts) {
+  const p = (points && points.properties) || {};
+  const town = p.relativeLocation && p.relativeLocation.properties;
+  const events = ((alerts && alerts.features) || []).map((f) => (f.properties || {}).event).filter(Boolean);
+  return {
+    office: p.cwa || null,
+    nearTown: town && town.city ? `${town.city}, ${town.state}` : null,
+    alerts: [...new Set(events)].slice(0, 5),
+  };
+}
+
+async function lookupNws(lat, lon) {
+  const points = await getJSON(`${NWS_URL}points/${lat.toFixed(4)},${lon.toFixed(4)}`, {}, 30000);
+  // The alerts are a bonus: if only they fail, the forecast office still shows.
+  const alerts = await getJSON(`${NWS_URL}alerts/active?point=${lat.toFixed(4)},${lon.toFixed(4)}`, {}, 30000).catch(() => null);
+  return summarizeNws(points, alerts);
+}
+
+// NASA POWER yearly averages. Wind is measured at 10 meters (about 33 feet) and given in meters per second.
+function summarizePower(data) {
+  const par = data && data.properties && data.properties.parameter;
+  if (!par) return null;
+  const ws = par.WS10M && Number(par.WS10M.ANN), rh = par.RH2M && Number(par.RH2M.ANN);
+  if (!(ws >= 0) && !(rh >= 0)) return null;
+  return {
+    windMph: ws >= 0 ? Math.round(ws * 2.23694 * 10) / 10 : null,
+    humidityPct: rh >= 0 ? Math.round(rh) : null,
+  };
+}
+
+async function lookupPower(lat, lon) {
+  const q = new URLSearchParams({ parameters: "WS10M,RH2M", community: "RE", longitude: String(lon), latitude: String(lat), format: "JSON" });
+  return summarizePower(await getJSON(`${POWER_URL}?${q}`, {}, 40000));
+}
+
+// EPA ECHO: how many regulated facilities (factories, plants, landfills and the like) are within a couple of miles.
+function summarizeEcho(data) {
+  const results = data && data.Results;
+  if (!results || results.Error) return null;
+  const n = Number(results.QueryRows);
+  return Number.isFinite(n) ? { facilities: n, withinMiles: ECHO_RADIUS_MILES } : null;
+}
+
+async function lookupEcho(lat, lon) {
+  const q = new URLSearchParams({ output: "JSON", p_lat: String(lat), p_long: String(lon), p_radius: String(ECHO_RADIUS_MILES), p_act: "Y" });
+  return summarizeEcho(await getJSON(`${ECHO_URL}?${q}`, {}, 40000));
+}
+
+// Each piece is looked up on its own, like the Texas details: `failed` lists the pieces that did not answer.
+async function lookupMore(parcel, censusKey) {
+  const { lat, lon, stateFips, countyFips } = parcel;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("Bad coordinates");
+  const jobs = {
+    countyProfile: () => lookupCountyProfile(stateFips, countyFips, censusKey),
+    drought: () => lookupDrought(lat, lon),
+    weather: () => lookupNws(lat, lon),
+    wind: () => lookupPower(lat, lon),
+    facilities: () => lookupEcho(lat, lon),
+  };
+  const names = Object.keys(jobs);
+  const settled = await Promise.allSettled(names.map((n) => jobs[n]()));
+  const out = { failed: [] };
+  settled.forEach((r, i) => {
+    if (r.status === "fulfilled") out[names[i]] = r.value;
+    else { out[names[i]] = null; out.failed.push(names[i]); }
+  });
+  return out;
+}
+
+/* ---- Texas-only details (looked up and shown only for parcels in Texas) ---- */
+
+// This service refuses normal "query" requests but answers "identify", which asks what is at one point.
+const TXGIO_PARCELS_URL = "https://feature.geographic.texas.gov/arcgis/rest/services/Parcels/stratmap_land_parcels_48_most_recent/MapServer/identify";
+const TWDB_GCD_URL = "https://services.twdb.texas.gov/arcgis/rest/services/Base/GroundWaterConservationDistricts/MapServer/0/query";
+const TLC_SCHOOL_URL = "https://services.arcgis.com/su8ic9KbA7PYVxPS/ArcGIS/rest/services/TEA_TX_School_Districts/FeatureServer/0/query";
+const TWDB_WELLS_URL = "https://services.twdb.texas.gov/arcgis/rest/services/Public/TWDB_Groundwater_database/FeatureServer/0/query";
+const RRC_MAP_URL = "https://gis.rrc.texas.gov/server/rest/services/rrc_public/RRC_Public_Viewer_Srvs/MapServer/";
+const RRC_WELLS_LAYER = 1;       // "Well Locations"
+const RRC_PIPELINES_LAYER = 13;  // "Pipelines"
+const EDWARDS_RECHARGE_URL = "https://services.arcgis.com/0L95CJ0VTaxqcmED/ArcGIS/rest/services/GEOSCIENTIFICINFORMATION_ed_aq_recharge_zone/FeatureServer/0/query";
+const TX_WELL_RADII_MILES = [3, 10];     // look for water wells this close, then farther out if none
+const TX_OILGAS_MILES = 1;
+const TX_PIPELINE_MILES = 0.5;
+
+// A rough box around Texas. It is used only when the county lookup failed and the state is unknown.
+const TEXAS_BOX = { south: 25.8, north: 36.6, west: -106.7, east: -93.5 };
+
+// True for a parcel in Texas: by its state when known, otherwise by the rough box.
+function isTexasParcel(parcel) {
+  if (!parcel) return false;
+  if (parcel.state) return String(parcel.state).toUpperCase() === "TX";
+  return parcel.lat >= TEXAS_BOX.south && parcel.lat <= TEXAS_BOX.north && parcel.lon >= TEXAS_BOX.west && parcel.lon <= TEXAS_BOX.east;
+}
+
+// Appraisal districts store the area in different units. Returns acres, or null when the unit is not recognized.
+function acresFrom(value, unit) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const u = String(unit || "").toLowerCase();
+  if (u === "" || u === "null" || /acre/.test(u)) return n;   // no unit given: these parcel files use acres
+  if (/(sq|square).*(f|ft|feet|foot)/.test(u)) return n / 43560;
+  if (/(sq|square).*(m|meter)/.test(u)) return n / 4046.856;
+  return null;
+}
+
+const middleOf = (sorted) => (sorted.length ? (sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2) : null);
+const topCounts = (values, n) => {
+  const counts = new Map();
+  for (const v of values) counts.set(v, (counts.get(v) || 0) + 1);
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]))).slice(0, n).map(([name]) => name);
+};
+
+// A field of a service reply, matched ignoring capitals (this service answers in capitals). The text "Null" and blanks mean missing.
+function field(attributes, name) {
+  const key = Object.keys(attributes).find((k) => k.toLowerCase() === name.toLowerCase());
+  const value = key === undefined ? null : attributes[key];
+  return value === null || value === undefined || /^\s*(null)?\s*$/i.test(String(value)) ? null : value;
+}
+
+// The appraisal district's record for the parcel under the point. The owner's name and addresses are deliberately not kept.
+function summarizeTxParcel(features) {
+  if (!features.length) return null;
+  const a = features[0].attributes;
+  const num = (name) => { const v = Number(field(a, name)); return Number.isFinite(v) && v > 0 ? v : null; };
+  // Areas come in acres; the unit fields are usually empty, so an empty unit is taken as acres.
+  const acres = acresFrom(field(a, "legal_area"), field(a, "lgl_area_unit")) ?? acresFrom(field(a, "gis_area"), field(a, "gis_area_unit"));
+  const landValue = num("land_value");
+  return {
+    propertyId: field(a, "prop_id"),
+    appraisalAcres: acres == null ? null : Math.round(acres * 100) / 100,
+    landValue, improvementValue: num("imp_value"), marketValue: num("mkt_value"),
+    landValuePerAcre: landValue != null && acres ? Math.round(landValue / acres) : null,
+    landUse: field(a, "loc_land_use") || field(a, "stat_land_use"),
+    taxYear: field(a, "tax_year"),
+    county: field(a, "county"),
+  };
+}
+
+function summarizeTxWells(features, miles, more) {
+  const depths = features.map((f) => Number(attr(f.attributes, "WellDepth"))).filter((d) => Number.isFinite(d) && d > 0).sort((a, b) => a - b);
+  return {
+    searchedMiles: miles, count: features.length, more: Boolean(more),
+    medianDepthFt: depths.length ? Math.round(middleOf(depths)) : null,
+    minDepthFt: depths.length ? Math.round(depths[0]) : null,
+    maxDepthFt: depths.length ? Math.round(depths[depths.length - 1]) : null,
+    aquifers: topCounts(features.map((f) => String(attr(f.attributes, "AquiferCodeName") || "").replace(/^\s*\w+\s+-\s+/, "").trim()).filter(Boolean), 2),   // "371SNSB - San Saba Limestone" -> "San Saba Limestone"
+  };
+}
+
+function summarizeTxPipelines(features, more) {
+  const clean = (v) => (v == null ? "" : String(v).trim());
+  return {
+    segments: features.length, more: Boolean(more),
+    operators: topCounts(features.map((f) => clean(attr(f.attributes, "OPERATOR"))).filter(Boolean), 3),
+    commodities: topCounts(features.map((f) => clean(attr(f.attributes, "COMMODITY_DESCRIPTION") || attr(f.attributes, "COMMODITY"))).filter(Boolean), 3),
+  };
+}
+
+const atPoint = (lat, lon, outFields) => ({ geometry: `${lon},${lat}`, geometryType: "esriGeometryPoint", outFields, resultRecordCount: "1" });
+const nearPoint = (lat, lon, miles, outFields, count) => ({ geometry: `${lon},${lat}`, geometryType: "esriGeometryPoint", distance: String(miles), units: "esriSRUnit_StatuteMile", outFields, resultRecordCount: String(count) });
+
+// Each piece is looked up on its own: `failed` lists the pieces whose service did not answer, and everything else still shows.
+// A value of null means the service answered and nothing was found there.
+async function lookupTexas(lat, lon) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("Bad coordinates");
+  const jobs = {
+    parcel: async () => {
+      const d = 0.0005;   // a box about 160 feet wide around the point, which identify needs to know the map scale
+      const q = new URLSearchParams({ f: "json", geometry: `${lon},${lat}`, geometryType: "esriGeometryPoint", sr: "4326", layers: "all:0", tolerance: "2",
+        mapExtent: `${lon - d},${lat - d},${lon + d},${lat + d}`, imageDisplay: "400,400,96", returnGeometry: "false" });
+      const data = await getJSON(`${TXGIO_PARCELS_URL}?${q}`, {}, 40000);
+      if (data.error) throw new Error("Texas parcels service error");
+      return summarizeTxParcel((data.results || []).map((r) => ({ attributes: r.attributes })));
+    },
+    groundwaterDistrict: async () => {
+      const { features } = await arcgisFeatures(TWDB_GCD_URL, atPoint(lat, lon, "DistrictName"), "Groundwater districts");
+      return { name: features.length ? attr(features[0].attributes, "DistrictName") || null : null };
+    },
+    schoolDistrict: async () => {
+      const { features } = await arcgisFeatures(TLC_SCHOOL_URL, atPoint(lat, lon, "NAME,NAME2"), "School districts");
+      return features.length ? { name: attr(features[0].attributes, "NAME") || attr(features[0].attributes, "NAME2") || null } : null;
+    },
+    wells: async () => {
+      for (const miles of TX_WELL_RADII_MILES) {
+        const params = { ...nearPoint(lat, lon, miles, "WellDepth,AquiferCodeName,WellType", 1000), where: "WellDepth > 0" };
+        const { features, more } = await arcgisFeatures(TWDB_WELLS_URL, params, "TWDB wells");
+        if (features.length) return summarizeTxWells(features, miles, more);
+      }
+      return null;
+    },
+    pipelines: async () => {
+      const { features, more } = await arcgisFeatures(`${RRC_MAP_URL}${RRC_PIPELINES_LAYER}/query`, nearPoint(lat, lon, TX_PIPELINE_MILES, "OPERATOR,COMMODITY_DESCRIPTION,COMMODITY,STATUS", 200), "RRC pipelines");
+      return features.length ? summarizeTxPipelines(features, more) : { segments: 0, operators: [], commodities: [], more: false };
+    },
+    oilGasWells: async () => {
+      const q = new URLSearchParams({ ...nearPoint(lat, lon, TX_OILGAS_MILES, "*", 1), inSR: "4326", spatialRel: "esriSpatialRelIntersects", returnCountOnly: "true", f: "json" });
+      q.delete("resultRecordCount");
+      const data = await getJSON(`${RRC_MAP_URL}${RRC_WELLS_LAYER}/query?${q}`, {}, 40000);
+      if (data.error || !Number.isFinite(data.count)) throw new Error("RRC wells service error");
+      return { count: data.count, withinMiles: TX_OILGAS_MILES };
+    },
+    edwards: async () => {
+      const { features } = await arcgisFeatures(EDWARDS_RECHARGE_URL, atPoint(lat, lon, "RECHARGE_ZONE"), "Edwards zone");
+      return { inRechargeZone: features.length > 0 };
+    },
+  };
+  const names = Object.keys(jobs);
+  const settled = await Promise.allSettled(names.map((n) => jobs[n]()));
+  const out = { failed: [] };
+  settled.forEach((r, i) => {
+    if (r.status === "fulfilled") out[names[i]] = r.value;
+    else { out[names[i]] = null; out.failed.push(names[i]); }
+  });
+  return out;
+}
+
 const SOURCE_STEPS = [
   ["County",   async (p) => { Object.assign(p, await lookupCounty(p.lat, p.lon)); }],
   ["Flood",    async (p) => { p.site.floodZone = await lookupFlood(p.lat, p.lon); }],
@@ -1177,6 +1449,31 @@ async function lookupAll(parcel, onProgress) {
   } catch (error) {
     errors.push(`Tax rate: ${error.message}`);
     onProgress("Tax rate", "failed");
+  }
+  // More local conditions. They need the county codes found above, so they also run afterward.
+  onProgress("More conditions", "running");
+  try {
+    parcel.site.more = await lookupMore(parcel, settings.censusKey);
+    // Keep what came back (the report says which pieces could not load), but count a total failure as a failed lookup.
+    const allFailed = parcel.site.more.failed.length === Object.keys(parcel.site.more).length - 1;
+    if (allFailed) errors.push("More conditions: no service answered");
+    onProgress("More conditions", allFailed ? "failed" : "ok");
+  } catch (error) {
+    errors.push(`More conditions: ${error.message}`);
+    onProgress("More conditions", "failed");
+  }
+  // Texas-only lookups. They need the state found above, so they run last, and only for Texas parcels.
+  if (isTexasParcel(parcel)) {
+    onProgress("Texas", "running");
+    try {
+      parcel.site.texas = await lookupTexas(parcel.lat, parcel.lon);
+      const allFailed = parcel.site.texas.failed.length === Object.keys(parcel.site.texas).length - 1;
+      if (allFailed) errors.push("Texas: no Texas service answered");
+      onProgress("Texas", allFailed ? "failed" : "ok");
+    } catch (error) {
+      errors.push(`Texas: ${error.message}`);
+      onProgress("Texas", "failed");
+    }
   }
   parcel.errors = errors;
   parcel.fetchedAt = new Date().toISOString();

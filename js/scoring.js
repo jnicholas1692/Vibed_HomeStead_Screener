@@ -57,7 +57,6 @@ function findDealbreakers(parcel, s, parts) {
     found.push(`Estimated drive to airport is over ${Math.round(s.airportMaxMin / 60 * 10) / 10} hours`);
   }
   if (on.price && parts.price === 0) found.push(`Price is ${money(s.priceMax)} or more`);
-  if (on.hunting && parts.hunting === 0) found.push("Not in a county where you can hunt");
   if (on.internet && site.internet) {
     // bestMbps is empty when only satellite (or nothing) is listed; otherwise the speed itself decides.
     if (site.internet.bestMbps == null) found.push("No wired or fixed wireless internet");
@@ -250,10 +249,27 @@ function groundwaterText(gw) {
   return `about ${w.depthFt} ft below ground (well ${w.distanceMiles} mi away, measured ${w.measured}${age})`;
 }
 
+/* ---- grouping the report sections ---- */
+
+// Puts the sections (already in your chosen order) into their categories. Inside a category the sections keep your order,
+// and the categories themselves are ordered by whichever of their sections you placed first.
+// Returns [{ key, label, sections: [section keys] }], leaving out categories that have none of the given sections.
+function groupSections(order) {
+  const groups = REPORT_GROUPS
+    .map(([key, label, members]) => ({ key, label, sections: order.filter((section) => members.includes(section)) }))
+    .filter((group) => group.sections.length > 0);
+  const firstPlace = (group) => Math.min(...group.sections.map((section) => order.indexOf(section)));
+  return groups.sort((a, b) => firstPlace(a) - firstPlace(b));
+}
+
+const groupLabelOf = (section) => (REPORT_GROUPS.find(([, , members]) => members.includes(section)) || [])[1] || "";
+
 /* ---- hover help (the table is GLOSSARY in config.js) ---- */
 
 // The text shown when you hover a label: what it means, then who supplies the data. "" when the label has no entry.
 function glossaryTip(label) {
+  // The scored factors describe your current ranges, so their text is built from the settings.
+  if (FACTOR_TIPS[label]) return FACTOR_TIPS[label](typeof settings !== "undefined" ? settings : DEFAULT_SETTINGS);
   const entry = GLOSSARY[label];
   if (!entry) return "";
   const source = entry.source && DATA_SOURCES[entry.source] ? ` Source: ${DATA_SOURCES[entry.source].name}.` : "";
@@ -305,6 +321,25 @@ function sourceKeysUsed(parcel) {
   if (has(site.wetlands)) used.push("wetlands");
   if (has(site.publicLand)) used.push("publicLand");
   if (site.usda) used.push("usda");
+  const more = site.more;
+  if (more) {
+    const okm = (key) => !(more.failed || []).includes(key);
+    if (okm("countyProfile") && more.countyProfile && !more.countyProfile.needsKey) used.push("censusProfile");
+    if (okm("drought")) used.push("drought");
+    if (okm("weather")) used.push("nws");
+    if (okm("wind")) used.push("power");
+    if (okm("facilities")) used.push("echo");
+  }
+  const tx = site.texas;
+  if (tx) {
+    const ok = (key) => !(tx.failed || []).includes(key);
+    if (ok("parcel")) used.push("txParcel");
+    if (ok("groundwaterDistrict")) used.push("txGcd");
+    if (ok("schoolDistrict")) used.push("txSchool");
+    if (ok("wells")) used.push("txWells");
+    if (ok("pipelines") || ok("oilGasWells")) used.push("txRrc");
+    if (ok("edwards")) used.push("txEdwards");
+  }
   return used;
 }
 
@@ -505,26 +540,9 @@ function buildComparison(items, s) {
   return rows;
 }
 
-// Turns "Blanco", "Blanco County" or "Blanco County TX" into { county: "blanco", state: "TX" or null }.
-// Adding the state matters because many states share county names.
-function parseCountyEntry(text) {
-  let name = String(text).trim();
-  let state = null;
-  const match = name.match(/^(.*\S)\s+([A-Za-z]{2})$/);
-  if (match && US_STATE_CODES.has(match[2].toUpperCase())) { name = match[1]; state = match[2].toUpperCase(); }
-  return { county: name.replace(/\s+county$/i, "").toLowerCase(), state };
-}
-
-// An entry with no state matches that county name anywhere. So does a parcel whose state is unknown.
-function countyMatches(entry, parcel) {
-  if (!parcel.county || entry.county !== parcel.county.toLowerCase()) return false;
-  return entry.state == null || !parcel.state || entry.state === String(parcel.state).toUpperCase();
-}
-
 // Returns { total, parts, factorsScored, factorsTotal, dealbreakers }.
 function scoreParcel(parcel, s) {
   const site = parcel.site || {};
-  const hunting = s.huntingCounties.map(parseCountyEntry);
   const parts = {
     septic: site.septicRating in SEPTIC_SCORES ? SEPTIC_SCORES[site.septicRating] : null,
     slope: site.slopePct == null ? null : linearScore(site.slopePct, s.slopeIdeal, s.slopeMax),
@@ -532,8 +550,6 @@ function scoreParcel(parcel, s) {
     airport: airportMinutes(site, s) == null ? null
       : linearScore(airportMinutes(site, s), s.airportFullMin, s.airportMaxMin),
     price: parcel.askingPrice == null ? null : linearScore(parcel.askingPrice, s.priceTarget, s.priceMax),
-    hunting: hunting.length === 0 || !parcel.county ? null
-      : (hunting.some((entry) => countyMatches(entry, parcel)) ? 100 : 0),
     internet: scoreInternet(site.internet, s),
   };
   let weightSum = 0, weighted = 0, scored = 0;

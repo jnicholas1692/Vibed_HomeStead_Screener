@@ -51,12 +51,11 @@ test("the default skill tree spends exactly 10 points on scored factors", () => 
 test("every other dealbreaker switch triggers at the worst end of its range, and only when on", () => {
   const s = defaults();
   for (const key of Object.keys(s.dealbreakers)) s.dealbreakers[key] = true;
-  s.huntingCounties = ["Blanco TX"];
   const bad = { county: "Kerr", state: "TX", askingPrice: 200000,
     site: { floodZone: "X", septicRating: "Very limited", slopePct: 25, annualRainIn: 10, airportMiles: 20,
             internet: { bestMbps: null, technologies: ["Satellite"], providers: [] } } };
   const found = plain(scoreParcel(bad, s).dealbreakers).join(" | ");
-  for (const word of ["septic", "Slope", "Rainfall", "Price", "hunt", "internet"]) assert.ok(found.includes(word), `${word}: ${found}`);
+  for (const word of ["septic", "Slope", "Rainfall", "Price", "internet"]) assert.ok(found.includes(word), `${word}: ${found}`);
   for (const key of Object.keys(s.dealbreakers)) s.dealbreakers[key] = false;
   assert.equal(scoreParcel(bad, s).dealbreakers.length, 0);
 });
@@ -64,13 +63,12 @@ test("every other dealbreaker switch triggers at the worst end of its range, and
 test("missing data never triggers a dealbreaker", () => {
   const s = defaults();
   for (const key of Object.keys(s.dealbreakers)) s.dealbreakers[key] = true;
-  s.huntingCounties = ["Blanco TX"];
   assert.equal(scoreParcel({ site: {} }, s).dealbreakers.length, 0);
 });
 
 test("pointsFromWeights converts old weights to exactly the budget, whole numbers", () => {
-  const out = plain(app.get("pointsFromWeights")({ septic: 15, slope: 10, rain: 10, airport: 15, price: 20, hunting: 5, internet: 10 }, 10));
-  assert.deepEqual(out, { septic: 2, slope: 1, rain: 1, airport: 2, price: 2, hunting: 1, internet: 1 });
+  const out = plain(app.get("pointsFromWeights")({ septic: 15, slope: 10, rain: 10, airport: 15, price: 20, internet: 10 }, 10));
+  assert.deepEqual(out, { septic: 2, slope: 1, rain: 1, airport: 2, price: 3, internet: 1 });
   assert.equal(Object.values(plain(app.get("pointsFromWeights")({ a: 1, b: 1, c: 1 }, 10))).reduce((x, y) => x + y, 0), 10);
 });
 
@@ -85,7 +83,7 @@ test("missing data is skipped, not counted as zero", () => {
   const result = scoreParcel({ site: { septicRating: "Not limited" } }, defaults());
   assert.equal(result.total, 100);
   assert.equal(result.factorsScored, 1);
-  assert.equal(result.factorsTotal, 7);
+  assert.equal(result.factorsTotal, 6);
 });
 
 test("a parcel with no data has no total", () => {
@@ -109,14 +107,6 @@ test("internet: satellite-only scores 25, nothing listed scores 10, no data is s
   assert.equal(scoreInternet({ bestMbps: null, technologies: [] }, s), 10);
   assert.equal(scoreInternet(null, s), null);
   assert.equal(scoreInternet(undefined, s), null);
-});
-
-test("hunting counties match ignoring capitals; an empty list skips the factor", () => {
-  const s = defaults();
-  assert.equal(scoreParcel({ county: "Blanco", site: {} }, s).parts.hunting, null);
-  s.huntingCounties = ["blanco"];
-  assert.equal(scoreParcel({ county: "Blanco", site: {} }, s).parts.hunting, 100);
-  assert.equal(scoreParcel({ county: "Kerr", site: {} }, s).parts.hunting, 0);
 });
 
 test("changing the points changes the total", () => {
@@ -183,22 +173,6 @@ test("filters: status, and hiding dealbreakers; the original list is not changed
   assert.deepEqual(names(applyView(items, viewWith({ status: "interested" }), defaults())).sort(), ["flooded", "keep"]);
   assert.deepEqual(names(applyView(items, viewWith({ hideDealbreakers: true }), defaults())).sort(), ["keep", "other"]);
   assert.equal(items.length, 3);
-});
-
-// ---- hunting counties with states ----
-test("hunting: a state in the list tells same-named counties apart", () => {
-  const s = defaults();
-  s.huntingCounties = ["Washington TX", "Blanco"];
-  const hunt = (county, state) => scoreParcel({ county, state, site: {} }, s).parts.hunting;
-  assert.equal(hunt("Washington", "TX"), 100);
-  assert.equal(hunt("Washington", "WI"), 0);          // same name, different state
-  assert.equal(hunt("Blanco", "TX"), 100);            // no state in the list: any state
-  assert.equal(hunt("Blanco", "OR"), 100);
-  assert.equal(hunt("Washington", null), 100);        // state of the parcel unknown: match by name
-  s.huntingCounties = ["Blanco County TX"];
-  assert.equal(hunt("Blanco", "TX"), 100);
-  s.huntingCounties = ["Orleans Parish LA"];
-  assert.equal(hunt("Orleans Parish", "LA"), 100);
 });
 
 // ---- rough cost estimate ----
@@ -308,11 +282,12 @@ test("every label the report shows has a hover explanation", () => {
   const read = (name) => fs.readFileSync(path.join(__dirname, "..", "js", name), "utf8");
   const glossary = plain(loadScripts(["config.js"]).get("GLOSSARY"));
   const labels = new Set([
-    ...[...read("ui.js").matchAll(/\bkv\("([^"]+)"/g)].map((m) => m[1]),          // the report sections
+    ...[...read("ui.js").matchAll(/\b(?:kv|row|profRow)\("([^"]+)"/g)].map((m) => m[1]),          // the report sections
     ...[...read("scoring.js").matchAll(/\brow\("([^"]+)"/g)].map((m) => m[1]),     // the compare table
     ...Object.values(plain(loadScripts(["config.js"]).get("FACTOR_LABELS"))),      // the factor table
   ]);
-  const missing = [...labels].filter((label) => !glossary[label]);
+  const factorTips = Object.keys(plain(Object.fromEntries(Object.keys(loadScripts(["config.js"]).get("FACTOR_TIPS")).map((k) => [k, 1]))));
+  const missing = [...labels].filter((label) => !glossary[label] && !factorTips.includes(label));
   assert.deepEqual(missing, []);
 });
 

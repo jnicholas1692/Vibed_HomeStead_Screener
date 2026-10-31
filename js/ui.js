@@ -14,9 +14,18 @@ function esc(value) {
 // The explanations are in GLOSSARY (config.js). A label with no entry is shown as plain text.
 function helpLabel(label) {
   const tip = glossaryTip(label);
-  if (!tip) return esc(label);
-  // tabindex lets keyboard and touch users reach it; aria-label puts the explanation in front of screen readers.
+  return tip ? tipSpan(label, tip) : esc(label);
+}
+
+// A label with an explanation of your choosing. tabindex lets keyboard and touch users reach it;
+// aria-label puts the explanation in front of screen readers.
+function tipSpan(label, tip) {
   return `<span class="help" tabindex="0" role="note" data-tip="${esc(tip)}" aria-label="${esc(`${label}. ${tip}`)}">${esc(label)}</span>`;
+}
+
+// Attributes that give a button (or any element) a hover explanation without dotting its text.
+function tipAttr(tip) {
+  return `data-tip="${esc(tip)}" aria-description="${esc(tip)}"`;
 }
 
 // The floating explanation. One element is reused for every label. It is placed inside the open dialog (if any) because
@@ -40,16 +49,41 @@ function hideHelpTip() {
   const old = document.getElementById("help-tip");
   if (old) old.remove();
 }
-document.addEventListener("mouseover", (e) => { const t = e.target.closest && e.target.closest(".help"); if (t) showHelpTip(t); });
-document.addEventListener("mouseout", (e) => { if (e.target.closest && e.target.closest(".help")) hideHelpTip(); });
-document.addEventListener("focusin", (e) => { const t = e.target.closest && e.target.closest(".help"); if (t) showHelpTip(t); });
+const TIP_TARGET = ".help, [data-tip]";   // dotted labels, and buttons or other elements that carry data-tip
+document.addEventListener("mouseover", (e) => { const t = e.target.closest && e.target.closest(TIP_TARGET); if (t) showHelpTip(t); });
+document.addEventListener("mouseout", (e) => { if (e.target.closest && e.target.closest(TIP_TARGET)) hideHelpTip(); });
+document.addEventListener("focusin", (e) => { const t = e.target.closest && e.target.closest(TIP_TARGET); if (t) showHelpTip(t); });
 document.addEventListener("focusout", hideHelpTip);
+// Pressing a button does its job, so its tip goes away. A tap on a dotted label keeps its tip.
+document.addEventListener("click", (e) => { if (!(e.target.closest && e.target.closest(".help"))) hideHelpTip(); });
 // The first Escape only closes the tip. Without preventDefault it would also close the report window behind it.
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && document.getElementById("help-tip")) { e.preventDefault(); hideHelpTip(); }
 }, true);
 // Scrolling moves the label out from under the tip, so close it.
 document.addEventListener("scroll", hideHelpTip, true);
+
+// Gives the fixed parts of the page (buttons, form fields and the like, listed by id in UI_TIPS) their hover explanations.
+// A field gets its tip on its label text; a button gets it on itself. Safe to run again: elements already done are skipped.
+function applyStaticTips() {
+  for (const [id, tip] of Object.entries(UI_TIPS)) {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.tipDone) continue;
+    el.dataset.tipDone = "1";
+    if (/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) {
+      const label = el.closest("label");
+      const textNode = label && [...label.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+      if (textNode) {
+        const holder = document.createElement("span");
+        holder.innerHTML = tipSpan(textNode.textContent.trim(), tip);
+        textNode.replaceWith(holder.firstChild, document.createTextNode(" "));
+        continue;
+      }
+    }
+    el.dataset.tip = tip;
+    el.setAttribute("aria-description", tip);
+  }
+}
 
 // One row of a label and its value, used by the report sections.
 const kv = (label, value) => `<div>${helpLabel(label)}</div><div>${value}</div>`;
@@ -180,7 +214,7 @@ function renderList(items) {
     </tr>`;
   }).join("");
   $("list").innerHTML = `<div class="table-scroll"><table>
-    <thead><tr><th class="col-pick">Pick</th><th class="num col-n">#</th><th>Parcel</th><th class="num">Price</th><th>Score</th><th title="Is the spot in a USDA loan eligible area?">USDA</th><th title="Is the spot in a high-risk FEMA flood zone?">Flood zone</th><th>Internet</th><th class="num col-air">To airport</th><th class="col-del" aria-label="Delete"></th></tr></thead>
+    <thead><tr><th class="col-pick">${tipSpan("Pick", "Tick two or three parcels, then press Compare to see them side by side.")}</th><th class="num col-n">${tipSpan("#", "Rank in the list, by the sort you chose.")}</th><th>${tipSpan("Parcel", "Your name for the parcel, with its county and size. Click a row to open its full report.")}</th><th class="num">${tipSpan("Price", "The asking price you entered.")}</th><th>${tipSpan("Score", "0 to 100, an average of the scored factors weighted by your points. A factor with no data for the parcel is skipped. Open the report to see each factor.")}</th><th>${tipSpan("USDA", "Is the spot in an area where USDA Rural Development guaranteed home loans are available? Yes means it is outside USDA's mapped ineligible areas.")}</th><th>${tipSpan("Flood zone", "Is the spot in a high-risk FEMA flood zone (zones starting with A or V)? Yes means high risk.")}</th><th>${tipSpan("Internet", "Fastest wired or fixed wireless download speed the providers report for the spot, with satellite left out.")}</th><th class="num col-air">${tipSpan("To airport", "Drive time to the nearest airport on the app's list.")}</th><th class="col-del" aria-label="Delete"></th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 
@@ -202,6 +236,37 @@ function renderAll() {
   renderList(items);
   drawMarkers(items);
 }
+
+/* ---- collapsible report categories ---- */
+let closedGroups = new Set(readStored(GROUPS_KEY, []));   // categories you collapsed; remembered between visits
+let printing = false;                                      // while printing, every category is opened
+
+document.addEventListener("toggle", (event) => {
+  const box = event.target;
+  if (printing || !(box instanceof HTMLElement) || !box.matches("details.rgroup")) return;
+  if (box.open) closedGroups.delete(box.dataset.group); else closedGroups.add(box.dataset.group);
+  writeStored(GROUPS_KEY, [...closedGroups]);
+}, true);   // "toggle" does not bubble, so listen on the way down
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest && event.target.closest("[data-groups]");
+  if (!button) return;
+  for (const box of document.querySelectorAll("#detail details.rgroup")) {
+    box.open = button.dataset.groups === "open";
+    if (box.open) closedGroups.delete(box.dataset.group); else closedGroups.add(box.dataset.group);
+  }
+  writeStored(GROUPS_KEY, [...closedGroups]);   // saved here as well, so it does not depend on when the browser reports the change
+});
+
+// A collapsed category would print as just a heading, so open them all for the printout and put them back afterwards.
+window.addEventListener("beforeprint", () => {
+  printing = true;
+  for (const box of document.querySelectorAll("details.rgroup")) { box.dataset.wasOpen = box.open ? "1" : ""; box.open = true; }
+});
+window.addEventListener("afterprint", () => {
+  for (const box of document.querySelectorAll("details.rgroup")) { box.open = box.dataset.wasOpen === "1"; delete box.dataset.wasOpen; }
+  setTimeout(() => { printing = false; }, 0);
+});
 
 // A small "Source:" line under a section. `keys` is one or more keys of DATA_SOURCES.
 function sourceHtml(keys, site) {
@@ -261,7 +326,7 @@ function publicLandHtml(pl) {
   const rows = pl.areas.map((a) => `<tr><td>${esc(a.name)}</td><td>${esc(a.manager)}</td><td>${esc(a.type || "")}</td><td>${esc(a.access)}</td><td class="num">${a.acres ? a.acres.toLocaleString("en-US") : "?"}</td></tr>`).join("");
   return `<p style="margin:0">${esc(headline)}</p>
     ${rows ? `<div class="table-scroll"><table><thead><tr><th>Area</th><th>Managed by</th><th>Type</th><th>Public access</th><th class="num">Acres</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}
-    <p class="hint">From the USGS Protected Areas Database. The list shows areas within the distance above, not in order of distance, and leaves out areas whose public access is unknown. "Open" access means people can visit, not that hunting or camping is allowed: check the managing agency and your state wildlife agency (in Texas, Texas Parks and Wildlife has a public hunting program). Land next to a parcel can be nice, but a neighboring public area can also bring crowds, hunting pressure or fire risk.</p>`;
+    <p class="hint">From the USGS Protected Areas Database. The list shows areas within the distance above, not in order of distance, and leaves out areas whose public access is unknown. "Open" access means people can visit, not that every use (such as camping) is allowed: check the managing agency. Land next to a parcel can be nice, but a neighboring public area can also bring crowds or fire risk.</p>`;
 }
 
 function wetlandsHtml(w) {
@@ -288,6 +353,77 @@ function groundwaterHtml(gw) {
     : `<p>No USGS monitoring well with a depth-to-water reading within about ${gw.searchedMiles} miles.</p>`;
   return `${body}
     <p class="hint">Depth is feet below ground to the water level in a monitoring well, which is not your lot. Water depth, rock type and well yield can differ a lot over a mile, and a deep or shallow reading nearby does not tell you what a new well will find. A monitoring well may tap a different layer (aquifer) than a household well would. In Texas, the Texas Water Development Board's Water Data for Texas site has driller reports for existing wells near you, and your groundwater conservation district sets the drilling rules. Ask a local well driller what depth and yield to expect.</p>`;
+}
+
+// "More local conditions": the county profile, drought, weather office and alerts, wind, design rainfall and nearby regulated facilities.
+function moreHtml(more) {
+  if (more === undefined) return `<p class="hint">${notYetText()}</p>`;
+  const failed = more.failed || [];
+  const unavailable = `<span class="sub">could not load; use Refresh data to try again</span>`;
+  const noData = `<span class="sub">no data for this spot</span>`;
+  const row = (label, key, make) => kv(label, failed.includes(key) ? unavailable : (more[key] ? make(more[key]) : noData));
+  const prof = more.countyProfile;
+  const needsKey = prof && prof.needsKey;
+  const profRow = (label, make) => (failed.includes("countyProfile") ? kv(label, unavailable) : needsKey ? kv(label, `<span class="sub">needs a free Census key in Settings</span>`)
+    : prof ? kv(label, make(prof)) : kv(label, noData));
+  const num = (n) => (n == null ? "?" : Number(n).toLocaleString("en-US"));
+  const droughtText = (d) => (d.level
+    ? `${esc(d.level)}: ${esc(d.name)} <span class="sub">map of ${esc(d.date || "?")}</span>`
+    : `no drought here <span class="sub">current map</span>`);
+  return `<div class="kv">
+      ${profRow("County population", (c) => num(c.population))}
+      ${profRow("County median household income", (c) => (c.medianIncome == null ? "?" : money(c.medianIncome)))}
+      ${profRow("County median age", (c) => (c.medianAge == null ? "?" : esc(c.medianAge)))}
+      ${profRow("County median home value", (c) => (c.medianHomeValue == null ? "?" : money(c.medianHomeValue)))}
+      ${profRow("Households with broadband (county)", (c) => (c.broadbandPct == null ? "?" : `${c.broadbandPct}%`))}
+      ${row("Drought now", "drought", droughtText)}
+      ${row("Weather service office", "weather", (w) => `${esc(w.office || "?")}${w.nearTown ? ` <span class="sub">near ${esc(w.nearTown)}</span>` : ""}`)}
+      ${row("Weather alerts now", "weather", (w) => (w.alerts.length ? esc(w.alerts.join(", ")) : "none in effect"))}
+      ${row("Average wind speed", "wind", (w) => (w.windMph == null ? "?" : `${w.windMph} mph`))}
+      ${row("Average humidity", "wind", (w) => (w.humidityPct == null ? "?" : `${w.humidityPct}%`))}
+      ${row("Regulated facilities within 2 miles", "facilities", (f) => (f.facilities > 0 ? `${f.facilities}` : "none listed"))}
+    </div>
+    <p class="hint">County figures describe the whole county, not your spot. Drought and weather alerts are snapshots from when the data was fetched.</p>`;
+}
+
+// The Texas-only section. `tx` is what lookupTexas found; `failed` names the pieces whose service did not answer.
+function texasHtml(tx, p) {
+  if (tx === undefined) return `<p class="hint">${notYetText()}</p>`;
+  const failed = tx.failed || [];
+  const unavailable = `<span class="sub">could not load; use Refresh data to try again</span>`;
+  const row = (label, key, make) => kv(label, failed.includes(key) ? unavailable : make());
+  const par = tx.parcel;
+  const none = `<span class="sub">none found at this exact point (it may be on a road, or in a county missing from the statewide set)</span>`;
+  const acresNote = par && par.appraisalAcres != null && p.acres > 0 && Math.abs(par.appraisalAcres - p.acres) / p.acres > 0.2
+    ? ` <span class="sub">(you entered ${esc(p.acres)})</span>` : "";
+  const perAcre = par && par.landValuePerAcre != null ? ` <span class="sub">(${money(par.landValuePerAcre)} an acre)</span>` : "";
+  const wells = tx.wells;
+  const wellsText = !wells ? `none in the database within ${TX_WELL_RADII_MILES[TX_WELL_RADII_MILES.length - 1]} miles`
+    : `${wells.count}${wells.more ? "+" : ""} within ${wells.searchedMiles} mi`
+      + (wells.medianDepthFt != null ? `; typical depth ${wells.medianDepthFt} ft <span class="sub">(range ${wells.minDepthFt} to ${wells.maxDepthFt} ft)</span>` : "");
+  const pipes = tx.pipelines;
+  const pipeText = !pipes || pipes.segments === 0 ? "none mapped"
+    : `${pipes.segments}${pipes.more ? "+" : ""} segment${pipes.segments === 1 ? "" : "s"}`
+      + (pipes.operators.length ? ` run by ${esc(pipes.operators.join(", "))}` : "")
+      + (pipes.commodities.length ? ` <span class="sub">(${esc(pipes.commodities.join(", ").toLowerCase())})</span>` : "");
+  const oil = tx.oilGasWells;
+  const edwards = tx.edwards;
+  const gcd = tx.groundwaterDistrict;
+  return `${edwards && edwards.inRechargeZone ? `<p class="notice bad"><strong>Inside the mapped Edwards Aquifer recharge zone.</strong> Septic systems, building and land clearing here fall under extra state water-protection rules and need TCEQ approval. Talk to TCEQ and the county before you buy.</p>` : ""}
+    <div class="kv">
+      ${row("Appraisal district acres", "parcel", () => (par && par.appraisalAcres != null ? `${esc(par.appraisalAcres)} acres${acresNote}` : par ? "?" : none))}
+      ${par ? row("Appraised land value", "parcel", () => (par.landValue != null ? `${money(par.landValue)}${perAcre} <span class="sub">tax year ${esc(par.taxYear || "?")}</span>` : "?")) : ""}
+      ${par && par.marketValue != null ? row("Appraised total value", "parcel", () => money(par.marketValue)) : ""}
+      ${par && par.landUse ? row("Land use (appraisal district)", "parcel", () => esc(par.landUse)) : ""}
+      ${row("Groundwater district", "groundwaterDistrict", () => (gcd && gcd.name ? esc(gcd.name) : "not in a groundwater conservation district"))}
+      ${row("School district", "schoolDistrict", () => (tx.schoolDistrict && tx.schoolDistrict.name ? esc(tx.schoolDistrict.name) : "?"))}
+      ${row("Water wells nearby", "wells", () => wellsText)}
+      ${wells && wells.aquifers.length ? row("Aquifer (nearby wells)", "wells", () => esc(wells.aquifers.join(", "))) : ""}
+      ${row("Oil and gas wells within 1 mile", "oilGasWells", () => (oil && oil.count > 0 ? `${oil.count}` : "none mapped"))}
+      ${row("Pipelines within half a mile", "pipelines", () => pipeText)}
+      ${row("Edwards Aquifer recharge zone", "edwards", () => (edwards && edwards.inRechargeZone ? "Yes" : "No"))}
+    </div>
+    <p class="hint">These come from Texas state sources and only appear for parcels in Texas. They do not show who owns the minerals, easements, deed restrictions, or your county's septic (OSSF) rules, so check the deed, a title search and the county. Appraisal values are for tax, not sale price, and farm and ranch land is often taxed at a low farming value. The owner's name and mailing address in the appraisal record are deliberately not shown.</p>`;
 }
 
 function roadsHtml(roads) {
@@ -481,22 +617,37 @@ function openDetail(id) {
       <h3>Natural hazards</h3>
       ${hazardsHtml(site.hazards)}
       ${sourceHtml("hazards", site)}`,
+    more: `
+      <h3>More local conditions</h3>
+      ${moreHtml(site.more)}
+      ${(() => { const keys = sourceKeysUsed(p).filter((k) => ["censusProfile", "drought", "nws", "power", "echo"].includes(k)); return keys.length ? sourceHtml(keys, site) : ""; })()}`,
+    texas: isTexasParcel(p) ? `
+      <h3>Texas details</h3>
+      ${texasHtml(site.texas, p)}
+      ${(() => { const keys = sourceKeysUsed(p).filter((k) => k.startsWith("tx")); return keys.length ? sourceHtml(keys, site) : ""; })()}` : "",
     cost: `
       <h3>Rough cost</h3>
       ${costHtml(p)}
       ${sourceHtml("costs", site)}${p.site && p.site.taxRate && p.site.taxRate.ratePct != null ? sourceHtml("taxRate", site) : ""}`,
   };
-  const orderedSections = normalizeReportOrder(settings.reportOrder).map((key) => sections[key]).join("");
+  // The sections sit inside collapsible categories. A category with nothing to show (such as Texas for a parcel elsewhere) is left out.
+  const orderedSections = groupSections(normalizeReportOrder(settings.reportOrder)).map((group) => {
+    const bodies = group.sections.map((key) => sections[key]).filter(Boolean);
+    if (!bodies.length) return "";
+    return `<details class="rgroup" data-group="${esc(group.key)}"${closedGroups.has(group.key) ? "" : " open"}>
+      <summary>${tipSpan(group.label, GROUP_TIPS[group.key] || group.label)}</summary>
+      <div class="rgroup-body">${bodies.join("")}</div></details>`;
+  }).join("");
   $("detail").innerHTML = `
     <div class="dlg-bar no-print">
       <div class="bar-group">
-        <button class="btn small" type="button" data-refresh="${esc(p.id)}"${busy ? " disabled" : ""}>${busy ? "Looking up..." : "Refresh data"}</button>
-        <button class="btn small" type="button" data-print>Print</button>
-        <button class="btn small" type="button" data-copy-summary="${esc(p.id)}">Copy summary</button>
-        <button class="btn small" type="button" data-edit="${esc(p.id)}"${busy ? " disabled" : ""}>Edit</button>
+        <button class="btn small" type="button" data-refresh="${esc(p.id)}" ${tipAttr("Look up all the public data for this spot again, since sources change.")}${busy ? " disabled" : ""}>${busy ? "Looking up..." : "Refresh data"}</button>
+        <button class="btn small" type="button" data-print ${tipAttr("Print this report, or save it as a PDF from the print window.")}>Print</button>
+        <button class="btn small" type="button" data-copy-summary="${esc(p.id)}" ${tipAttr("Copy a short plain-text summary of this parcel that you can paste into an email or message.")}>Copy summary</button>
+        <button class="btn small" type="button" data-edit="${esc(p.id)}" ${tipAttr("Change this parcel's name, address, acres, price or location.")}${busy ? " disabled" : ""}>Edit</button>
       </div>
       <div class="bar-group">
-        <button class="btn small primary" type="button" data-save-notes="${esc(p.id)}">Save notes</button>
+        <button class="btn small primary" type="button" data-save-notes="${esc(p.id)}" ${tipAttr("Save the status and notes below.")}>Save notes</button>
         ${deleteButton(p.id)}
         <button class="btn small" type="button" data-close>Close</button>
       </div>
@@ -507,11 +658,12 @@ function openDetail(id) {
     </div>
     <div class="dlg-body">
       <div class="print-only sub">Printed ${esc(new Date().toLocaleDateString())} from Homestead Land Screener. Data sources are listed at the end of the report.</div>
-      ${busy ? `<p class="notice no-print" role="status">Looking up data: ${lookupDone} of ${SOURCE_STEPS.length + 2} lookups finished. The report fills in as each one arrives.</p>` : ""}
+      ${busy ? `<p class="notice no-print" role="status">Looking up data: ${lookupDone} of ${SOURCE_STEPS.length + 3 + (isTexasParcel(p) ? 1 : 0)} lookups finished. The report fills in as each one arrives.</p>` : ""}
       ${score.dealbreakers.length ? `<p class="notice bad"><strong>Dealbreakers:</strong> ${esc(score.dealbreakers.join("; "))}</p>` : ""}
       <div class="score-line"><span class="big">${scoreText(score.total)}</span><span class="sub">score &middot; ${score.factorsScored} of ${score.factorsTotal} factors had data</span></div>
-      <div class="table-scroll"><table><thead><tr><th>Factor</th><th class="num">Score</th><th></th><th class="num">Points</th></tr></thead><tbody>${factorRows}</tbody></table></div>
+      <div class="table-scroll"><table><thead><tr><th>${helpLabel("Factor")}</th><th class="num">${tipSpan("Score", "This factor's score from 0 (worst) to 100 (best). \"no data\" means the lookup found nothing, so the factor is skipped, not scored as zero.")}</th><th></th><th class="num">${helpLabel("Points")}</th></tr></thead><tbody>${factorRows}</tbody></table></div>
       ${!busy && p.errors && p.errors.length ? `<p class="notice">Some lookups failed, so the score is partial: ${esc(p.errors.join("; "))}. Use Refresh data to try again.</p>` : ""}
+      <div class="group-tools no-print"><button class="btn small" type="button" data-groups="open" ${tipAttr("Open every category in this report.")}>Expand all</button><button class="btn small" type="button" data-groups="close" ${tipAttr("Close every category so only the headings show.")}>Collapse all</button></div>
       ${orderedSections}
       <h3>Data sources</h3>
       ${sourcesFooterHtml(sourceKeysUsed(p), site, p.fetchedAt)}
@@ -527,6 +679,7 @@ function openDetail(id) {
       <textarea id="summary-text" class="no-print" rows="8" readonly hidden></textarea>
     </div>
 `;
+  applyStaticTips();
   if (!$("dlg-detail").open) $("dlg-detail").showModal();
 }
 
@@ -776,7 +929,7 @@ let armedDeleteId = null;
 let armedTimer = null;
 function deleteButton(id) {
   const armed = armedDeleteId === id;
-  return `<button class="btn small danger${armed ? " armed" : ""}" type="button" data-delete="${esc(id)}">${armed ? "Click again to delete" : "Delete"}</button>`;
+  return `<button class="btn small danger${armed ? " armed" : ""}" type="button" data-delete="${esc(id)}" ${tipAttr("Delete this parcel. The first click arms the button and the second one deletes it.")}>${armed ? "Click again to delete" : "Delete"}</button>`;
 }
 function deleteParcel(id) {
   clearTimeout(armedTimer);
@@ -877,7 +1030,8 @@ function renderOrderList(focus) {
   const label = Object.fromEntries(REPORT_SECTIONS);
   $("c-order-list").innerHTML = orderDraft.map((key, i) => `<li data-key="${key}">
       <span class="order-grip" title="Drag to reorder" aria-hidden="true">&#8942;&#8942;</span>
-      <span class="order-name">${esc(label[key])}</span>
+      <span class="order-name">${SECTION_TIPS[key] ? tipSpan(label[key], SECTION_TIPS[key]) : esc(label[key])}</span>
+      <span class="order-group sub">${esc(groupLabelOf(key))}</span>
       <button class="btn small" type="button" data-move="up" data-key="${key}" aria-label="Move ${esc(label[key])} up"${i === 0 ? " disabled" : ""}>Up</button>
       <button class="btn small" type="button" data-move="down" data-key="${key}" aria-label="Move ${esc(label[key])} down"${i === orderDraft.length - 1 ? " disabled" : ""}>Down</button>
     </li>`).join("");
@@ -944,7 +1098,6 @@ const DEALBREAKER_RULES = {
   rain: "if rainfall is at or below the zero end of its range below",
   airport: "if the drive to the airport is longer than the dealbreaker minutes below",
   price: "if the price is at or above the zero end of its range below",
-  hunting: "if the parcel is not in one of your hunting counties",
   internet: "if there is no wired or fixed wireless service, or the speed is at or below the zero end below",
 };
 
@@ -964,11 +1117,11 @@ function renderTree() {
       <div class="node-main">
         <span class="node-name">${helpLabel(name)}</span>
         <span class="pips" aria-hidden="true">${pips}</span>
-        <button class="btn small" type="button" data-point="${key}" data-delta="-1" aria-label="Take a point from ${esc(name)}"${n === 0 ? " disabled" : ""}>&minus;</button>
+        <button class="btn small" type="button" data-point="${key}" data-delta="-1" aria-label="Take a point from ${esc(name)}" ${tipAttr(`Take a point away from ${name}. The point goes back to your pool.`)}${n === 0 ? " disabled" : ""}>&minus;</button>
         <output class="node-points" aria-label="${esc(name)} points">${n}</output>
-        <button class="btn small" type="button" data-point="${key}" data-delta="1" aria-label="Give a point to ${esc(name)}"${left === 0 ? " disabled" : ""}>+</button>
+        <button class="btn small" type="button" data-point="${key}" data-delta="1" aria-label="Give a point to ${esc(name)}" ${tipAttr(`Give a point to ${name}. More points make it pull the total score harder.`)}${left === 0 ? " disabled" : ""}>+</button>
       </div>
-      <label class="node-deal"><input type="checkbox" data-deal="${key}"${dealDraft[key] ? " checked" : ""}> Dealbreaker <span class="sub">${esc(DEALBREAKER_RULES[key])}</span></label>
+      <label class="node-deal"><input type="checkbox" data-deal="${key}"${dealDraft[key] ? " checked" : ""}> ${tipSpan("Dealbreaker", `When on, a parcel is flagged as a dealbreaker ${DEALBREAKER_RULES[key]}. It still gets a score, and you can hide flagged parcels in the list. Missing data never triggers it.`)} <span class="sub">${esc(DEALBREAKER_RULES[key])}</span></label>
     </li>`;
   }).join("");
 }
@@ -984,7 +1137,7 @@ function showSettingsTab(name) {
 
 function numberBoxes(fields) {
   return fields.map(([label, path]) =>
-    `<label>${esc(label)}<input data-path="${path}" inputmode="decimal" value="${esc(getPath(settings, path))}"></label>`).join("");
+    `<label>${SETTING_TIPS[path] ? tipSpan(label, SETTING_TIPS[path]) : esc(label)}<input data-path="${path}" inputmode="decimal" value="${esc(getPath(settings, path))}"></label>`).join("");
 }
 
 function openCriteria() {
@@ -993,19 +1146,17 @@ function openCriteria() {
   $("criteria-fields").innerHTML = `
     <div class="tab-panel" id="panel-scoring" role="tabpanel" aria-labelledby="tab-scoring" data-panel="scoring">
       <div class="stack">
-        <div class="tree-head"><strong>Skill tree</strong><span class="points-left" id="c-points-left" role="status"></span></div>
+        <div class="tree-head"><strong>${tipSpan("Skill tree", "You have 10 points to spend on what matters most. A factor's share of the points decides how much it counts toward the 0 to 100 score. 0 points means the factor is ignored.")}</strong><span class="points-left" id="c-points-left" role="status"></span></div>
         <p class="hint">Spend ${POINT_BUDGET} points on what matters most to you. More points means the factor pulls the score harder. A factor with 0 points is not scored, and a factor with no data for a parcel is skipped, not counted as zero. Turn on Dealbreaker to rule a parcel out completely when that factor is at its worst.</p>
         <ul class="tree" id="c-tree"></ul>
         <div class="node flood-node">
           <div class="node-main"><span class="node-name">${helpLabel("In a flood zone?")}</span><span class="sub">Not scored. The report shows a plain Yes or No with the zone.</span></div>
-          <label class="node-deal"><input type="checkbox" data-deal="flood"${dealDraft.flood ? " checked" : ""}> Dealbreaker <span class="sub">${esc(DEALBREAKER_RULES.flood)}</span></label>
+          <label class="node-deal"><input type="checkbox" data-deal="flood"${dealDraft.flood ? " checked" : ""}> ${tipSpan("Dealbreaker", `When on, a parcel is flagged as a dealbreaker ${DEALBREAKER_RULES.flood}. Missing data never triggers it.`)} <span class="sub">${esc(DEALBREAKER_RULES.flood)}</span></label>
         </div>
       </div>
       <div class="fields">
         <p class="hint wide">These ranges are starting points, not rules. Rainfall, price and slope that count as good vary a lot across the US (for example, 15 inches of rain a year is dry in Georgia but normal in Nevada), so set them for the region you are searching.</p>
         ${numberBoxes(SCORING_FIELDS)}
-        <label class="wide">Counties where you can hunt (comma-separated; add the state, like "Blanco TX", because many states share county names; leave empty to skip this factor)
-          <input id="c-hunting" value="${esc(settings.huntingCounties.join(", "))}" placeholder="Example: Blanco TX, Gillespie TX"></label>
         <label class="wide">Which airports count?
           <select id="c-airport-mode">
             <option value="auto">The nearest major US airport (default)</option>
@@ -1032,7 +1183,7 @@ function openCriteria() {
     <div class="tab-panel" id="panel-layout" role="tabpanel" aria-labelledby="tab-layout" data-panel="layout" hidden>
       <div class="stack" id="c-order-block">
         <strong>Order of the report sections</strong>
-        <p class="hint">The score and factor table always come first, and the data sources and your notes always come last. Drag a row by the dots on its left, or use Up and Down, to arrange everything between them. The change applies to the report on screen and to the printout.</p>
+        <p class="hint">The score and factor table always come first, and the data sources and your notes always come last. Drag a row by the dots on its left, or use Up and Down, to arrange everything between them. The report groups sections into collapsible categories (shown at the right of each row). Inside a category the sections follow this order, and the category that holds your first section comes first. The change applies to the report on screen and to the printout.</p>
         <ol class="order-list" id="c-order-list"></ol>
         <div><button class="btn small" type="button" id="c-order-reset">Reset to the default order</button></div>
       </div>
@@ -1043,6 +1194,7 @@ function openCriteria() {
   $("c-airport-mode").value = settings.airportMode;
   $("criteria-error").hidden = true;
   showSettingsTab("scoring");
+  applyStaticTips();
   $("dlg-criteria").showModal();
 }
 
@@ -1090,7 +1242,6 @@ function saveCriteria(event) {
     settingsError("The two ends of each range must be different numbers.", $("c-tree"));
     return;
   }
-  next.huntingCounties = $("c-hunting").value.split(",").map((c) => c.trim().replace(/\s+county\b/i, "")).filter(Boolean);
   next.censusKey = $("c-census-key").value.trim();
   next.reportOrder = normalizeReportOrder(orderDraft);
   next.costs.useCountyTax = $("c-use-county-tax").checked;
@@ -1378,4 +1529,5 @@ for (const id of ["sort-by", "filter-status", "hide-dealbreakers"]) $(id).addEve
 
 initMap();
 renderAll();
+applyStaticTips();
 if (!storageOk) $("storage-warning").hidden = false;
