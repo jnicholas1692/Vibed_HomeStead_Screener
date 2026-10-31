@@ -50,12 +50,31 @@ function hideHelpTip() {
   if (old) old.remove();
 }
 const TIP_TARGET = ".help, [data-tip]";   // dotted labels, and buttons or other elements that carry data-tip
-document.addEventListener("mouseover", (e) => { const t = e.target.closest && e.target.closest(TIP_TARGET); if (t) showHelpTip(t); });
-document.addEventListener("mouseout", (e) => { if (e.target.closest && e.target.closest(TIP_TARGET)) hideHelpTip(); });
+
+// Was the last press a finger (or pen) rather than a mouse? Phones send pretend mouse and focus events around a tap,
+// including a "mouse left" right after it, which would close the tip at once. So after a touch, only a tap somewhere
+// else (or Escape, or scrolling) closes a tip.
+let touchPress = false;
+document.addEventListener("pointerdown", (e) => { touchPress = e.pointerType !== "mouse"; }, true);
+
+// After a touch, the pretend mouse events can land on whatever was under an earlier tap, so they open no tips; the tap does.
+document.addEventListener("mouseover", (e) => { const t = !touchPress && e.target.closest && e.target.closest(TIP_TARGET); if (t) showHelpTip(t); });
+document.addEventListener("mouseout", (e) => { if (!touchPress && e.target.closest && e.target.closest(TIP_TARGET)) hideHelpTip(); });
 document.addEventListener("focusin", (e) => { const t = e.target.closest && e.target.closest(TIP_TARGET); if (t) showHelpTip(t); });
-document.addEventListener("focusout", hideHelpTip);
-// Pressing a button does its job, so its tip goes away. A tap on a dotted label keeps its tip.
-document.addEventListener("click", (e) => { if (!(e.target.closest && e.target.closest(".help"))) hideHelpTip(); });
+document.addEventListener("focusout", () => { if (!touchPress) hideHelpTip(); });
+// A dotted label inside a <label> (like "Road detour factor" or a tick box's words) would pass a tap on to its box,
+// which takes the focus, opens the phone keyboard or flips the tick box, and closes the tip. On a touch screen a tap on
+// the dotted words only shows the tip; tapping the box itself still works. With a mouse, hovering shows the tip, so a
+// click on the words keeps working as usual. (Capture phase, so this runs before the label acts.)
+document.addEventListener("click", (e) => {
+  if (touchPress && e.target.closest && e.target.closest(".help") && e.target.closest("label")) e.preventDefault();
+}, true);
+// Pressing a button does its job, so its tip goes away. A tap or click on a dotted label shows its tip (again, if it
+// already had the focus and so got no new focus event).
+document.addEventListener("click", (e) => {
+  const help = e.target.closest && e.target.closest(".help");
+  if (help) showHelpTip(help); else hideHelpTip();
+});
 // The first Escape only closes the tip. Without preventDefault it would also close the report window behind it.
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && document.getElementById("help-tip")) { e.preventDefault(); hideHelpTip(); }

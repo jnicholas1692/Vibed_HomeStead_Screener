@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v2.6.0.
+> Last updated for v2.6.1.
 
 ## 1. Problem
 
@@ -101,6 +101,7 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R64 | Texas acres and tax values | When a Texas parcel's acres are blank, the appraisal record's acres fill them, marked "(appraisal)" in the list and "used as the parcel's acres" in the report; typing your own acres replaces them; the report adds the appraised improvement value (when above zero), the year built, and an estimated yearly tax before exemptions (total value times the county's typical rate, or your own rate); the owner fields are still never kept | `feature/texas-tax-and-exemptions` |
 | R65 | Tax exemptions | The Add and Edit window has tick boxes for ag (open-space) valuation, wildlife management valuation, homestead exemption, and "None of these (I checked)"; none ticked means unknown; None and the others clear each other; the report lists them with "(you entered)", or "Ag or wildlife valuation likely" when a Texas record's state land category is D1; Texas parcels link to the county's page in the Comptroller's appraisal district directory with the property ID; the compare table shows them | `feature/texas-tax-and-exemptions` |
 | R66 | Ag or wildlife valuation criterion | A twelfth criterion, unticked by default: 100 for a ticked ag or wildlife valuation (or a D1 record), 0 for "None of these", no data otherwise; its dealbreaker fires only on a confirmed no; suggested for homestead, farm and backyard livestock | `feature/texas-tax-and-exemptions` |
+| R67 | Hover help on touch screens | After a touch, the pretend mouse and focus events a phone sends around a tap neither close nor open tips; tapping dotted words opens their tip (again if tapped twice) and a tap elsewhere, Escape or scrolling closes it; dotted words inside a label do not pass the tap to the box or tick box (tapping the box itself still works); with a mouse nothing changes, so clicking a tick box's words still ticks it; checked on a touch phone emulation for every kind of dotted label in Settings | `fix/mobile-tips-in-labels` |
 
 ## 5. Scoring rules
 
@@ -172,7 +173,7 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 ## 10. Testing
 
 - 177 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
-- 189 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
+- 213 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
 - Live checks against real services are manual (see the tutorial).
 
 ## 11. What I would do next
