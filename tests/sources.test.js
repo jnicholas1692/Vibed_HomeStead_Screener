@@ -1026,13 +1026,36 @@ test("overpassQuery names each server that failed, and a failure does not block 
   const app = loadScripts(["config.js", "sources.js"], { fetch: fetchFn });
   const query = app.get("overpassQuery");
   const first = query("one").catch((error) => error);
-  const second = query("two");
+  const second = query("two").catch((error) => error);
   const error = await first;
   assert.match(error.message, /busy or slow/);
   assert.match(error.message, /overpass-api\.de: HTTP 504/);
   assert.match(error.message, /overpass\.openstreetmap\.fr: HTTP 504/);
   assert.match(error.message, /overpass\.kumi\.systems: HTTP 504/);
-  assert.equal((await second).length, 1);
+  // Every server is now resting, so the next request fails at once instead of waiting on each of them again.
+  const rested = await second;
+  assert.match(rested.message, /resting after a recent failure/);
+  assert.equal(calls, 4);
+  // Once the rest is over (here: cleared by hand), the queue still works and the next request gets through.
+  const resting = app.get("overpassRestingUntil");
+  for (const key of Object.keys(resting)) delete resting[key];
+  assert.equal((await query("three")).length, 1);
+});
+
+test("a busy Overpass server rests longer than one that failed another way, and an answer clears its rest", async () => {
+  const replies = [{ status: 429 }, { status: 500 }, { status: 200 }];
+  const fetchFn = async () => {
+    const r = replies.shift();
+    return { ok: r.status < 400, status: r.status, text: async () => JSON.stringify({ elements: [] }) };
+  };
+  const app = loadScripts(["config.js", "sources.js"], { fetch: fetchFn });
+  await app.get("overpassQuery")("q");
+  const resting = app.get("overpassRestingUntil");
+  const ends = app.get("OVERPASS_ENDPOINTS").map((e) => resting[e]);
+  const now = Date.now();
+  assert.ok(ends[0] - now > 4 * 60 * 1000);                     // 429 "too many requests": about 5 minutes
+  assert.ok(ends[1] - now < 3 * 60 * 1000 && ends[1] > now);    // HTTP 500: about 2 minutes
+  assert.equal(ends[2], undefined);                              // the one that answered is not resting
 });
 
 test("overpassQuery goes first to the server that answered last time", async () => {
@@ -1067,7 +1090,8 @@ test("clearAllData erases what was saved and goes back to the defaults", () => {
   app.get("saveParcels")();
   app.get("writeStored")("homestead-screener.settings.v1", { priceTarget: 1 });
   app.get("writeStored")("homestead-screener.view.v1", { sort: "price" });
-  assert.equal(Object.keys(stored).length, 3);
+  app.get("writeStored")("homestead-screener.overpass.v1", { preferred: 1, restingUntil: {} });   // which map server worked last
+  assert.equal(Object.keys(stored).length, 4);
   app.get("clearAllData")();
   assert.deepEqual(Object.keys(stored), []);
   assert.equal(app.get("parcels").length, 0);

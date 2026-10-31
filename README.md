@@ -18,6 +18,7 @@ This is a personal test of AI-assisted development. I am using it to see how far
 
 - Add a parcel by address or by clicking the map; data is looked up automatically
 - Edit a parcel's name, address, location, acres or price later; the score and cost update, and moving the pin looks the data up again
+- Refresh data asks again only for what is missing (lookups that failed, pieces that did not load, drive times that were estimated, data added in newer versions); Refresh all looks everything up again
 - Choose the order of the report sections in Settings
 - Monthly cost with a dollar down payment, compared across your land loan and 30-year conventional and FHA home loans
 - USDA loan area (Yes or No) from USDA Rural Development's eligibility map
@@ -36,7 +37,7 @@ This is a personal test of AI-assisted development. I am using it to see how far
 - USDA plant hardiness zone
 - Soil details (texture, depth to bedrock and water, shrink-swell, building ratings)
 - Frost dates, frost-free days, days over 100 F, snow, and solar hours
-- Nearest road and nearest paved public road
+- Nearest road and nearest paved public road, with backups when the free map servers are busy: the Census Bureau's TIGER road map, then the OSRM routing server's nearest road
 - Mapped wetlands, and nearby public and protected land
 - Groundwater depth at the nearest USGS monitoring wells
 - County property tax rate (needs a free Census key; Settings links straight to the Census sign-up page) used in the cost estimate
@@ -64,7 +65,7 @@ This is a personal test of AI-assisted development. I am using it to see how far
 | Drive times | OpenStreetMap through the OSRM public demo server |
 | Soil details | USDA Soil Data Access |
 | Frost, climate, solar | Open-Meteo historical archive (10 years) |
-| Road access | OpenStreetMap through the Overpass API |
+| Road access | OpenStreetMap through the Overpass API; backups: US Census TIGER roads (TIGERweb), then the OSRM nearest road |
 | Wetlands | US Fish and Wildlife Service National Wetlands Inventory |
 | Public and protected land | USGS Protected Areas Database (PAD-US) |
 | Groundwater | USGS Water Data API |
@@ -81,6 +82,7 @@ There is no account and no backend. To look up a parcel, the app sends that parc
 - FCC internet data is from June 2021, reported per census block. It likely overstates rural coverage and has no Starlink.
 - OpenStreetMap is edited by volunteers. Rural shops are often missing, so "none found" does not prove there is none.
 - The OSRM demo server is for light use. If it does not answer, drive times fall back to estimates and the app says so.
+- The free OpenStreetMap (Overpass) servers are often busy. A server that fails rests for a few minutes so the app goes straight to another, and road access falls back to the Census TIGER road map, which does not record surfaces, so only highways count as paved there.
 - Rainfall, price and slope settings that count as good depend on the region. Set the criteria for where you are searching.
 - Cost estimates use placeholder rates you can edit. They are not quotes.
 - School levels are worked out from OpenStreetMap grades, level tags or names, and the app cannot tell which school serves your address. Ask the district.
@@ -126,6 +128,7 @@ Add `--headed` to watch the browser. Passing tests cannot prove a real service s
 - **v2.0.2** The main page links to the GitHub repository
 - **v2.1.0** Hover explanations on every data point and Settings option; hunting removed; a Texas details section (parcel record, groundwater district, school district, wells, pipelines, oil and gas, Edwards zone) shown only for Texas parcels; a More local conditions section (county profile, drought, weather alerts, wind, facilities); report grouped into collapsible categories. 133 unit tests.
 - **v2.2.0** A Get a free Census API key link right under the key box in Settings; the page footer shows the version and the date of the last update. 136 unit tests.
+- **v2.4.0** Road access no longer fails when OpenStreetMap trims a road at the edge of the search area (the cause of most road failures); a busy or failing map server rests for a few minutes, remembered across reloads; backup road sources (Census TIGER roads, then the OSRM nearest road) when every OpenStreetMap server fails; Refresh data now asks again only for what is missing, and a new Refresh all button looks everything up again. 165 unit tests, 146 browser checks.
 - **v2.3.0** Scoring is now a list of criteria you tick, each counting the same, in an order you choose (it replaces the 10-point skill tree; old settings convert once). Each report opens with a summary of your criteria in your order, the first three become list columns, and the compare table starts with them. Five new criteria (flood risk, groundwater depth, natural hazard rating, hospital drive, grocery drive). New data from services the app already used: FEMA's special flood hazard flag and base flood elevation, slope direction, soil permeability, FEMA social vulnerability and community resilience, and the Texas parcel outline on the map. New service: OpenFEMA disaster declarations for the county. 150 unit tests, 133 browser checks.
 - **v2.2.1** A browser test suite (`test_site.py`, 105 checks with every data service faked) is now part of the repository; the rough cost labels have hover explanations; the Reset to defaults tip now says it saves at once and keeps your Census key. 136 unit tests.
 - **v1.9.1** Drag the report sections into order in Settings (Up and Down still work)

@@ -699,6 +699,27 @@ const OVERPASS_ENDPOINTS = [
 ];
 let overpassPreferred = 0;   // the server that answered last time; the next request tries it first
 
+// A server that says it is busy (or rate-limits us) rests for 5 minutes, and one that fails another way rests for 2,
+// so the next request goes straight to a server that may work instead of waiting on one that just failed.
+const OVERPASS_REST_MS = { busy: 5 * 60 * 1000, failed: 2 * 60 * 1000 };
+const overpassRestingUntil = {};   // server address -> time (in ms since 1970) it may be tried again
+
+// Which server worked last and which are resting are kept in the browser too, so reloading the page does not
+// mean waiting on a server that just failed. Storage can be blocked (or missing in the tests), so every use is guarded.
+try {
+  const saved = JSON.parse(localStorage.getItem(OVERPASS_MEMORY_KEY) || "null");
+  if (saved && Number.isInteger(saved.preferred) && saved.preferred >= 0 && saved.preferred < OVERPASS_ENDPOINTS.length) overpassPreferred = saved.preferred;
+  for (const [endpoint, until] of Object.entries((saved && saved.restingUntil) || {})) {
+    if (OVERPASS_ENDPOINTS.includes(endpoint) && until > Date.now()) overpassRestingUntil[endpoint] = until;
+  }
+} catch { /* nothing saved, or storage is blocked: start fresh */ }
+function rememberOverpass() {
+  try { localStorage.setItem(OVERPASS_MEMORY_KEY, JSON.stringify({ preferred: overpassPreferred, restingUntil: overpassRestingUntil })); } catch { /* storage is blocked */ }
+}
+
+// HTTP 429 means "too many requests"; 502, 503 and 504 are what these servers send when every worker is busy.
+const isBusyReply = (error) => /^HTTP (429|502|503|504)$/.test(error.message);
+
 function buildPlacesQuery(lat, lon, radiusM, kinds) {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("Bad coordinates");
   // "nwr" means nodes, ways and relations. "out center" gives ways a single point.
@@ -711,25 +732,31 @@ function buildPlacesQuery(lat, lon, radiusM, kinds) {
 // The free Overpass servers allow only a couple of requests at a time and answer extra ones with "busy" or with nothing
 // at all. Roads and nearby places both use Overpass, so their requests wait in this line and go one at a time.
 let overpassLine = Promise.resolve();
-function overpassQuery(query) {
-  const turn = overpassLine.then(() => overpassRequest(query));
+function overpassQuery(query, timeoutMs = 30000) {
+  const turn = overpassLine.then(() => overpassRequest(query, timeoutMs));
   overpassLine = turn.catch(() => {});   // a failed request must not block the ones waiting behind it
   return turn;
 }
 
-// One request, trying each server in turn, starting with the one that worked last time. If all of them fail,
-// the message says why each one did.
-async function overpassRequest(query) {
+// One request, trying each server in turn, starting with the one that worked last time and skipping any that are
+// resting after a recent failure. If all of them fail (or are resting), the message says why for each one.
+async function overpassRequest(query, timeoutMs = 30000) {
   const failures = [];
   for (let i = 0; i < OVERPASS_ENDPOINTS.length; i++) {
     const index = (overpassPreferred + i) % OVERPASS_ENDPOINTS.length;
     const endpoint = OVERPASS_ENDPOINTS[index];
+    const host = endpoint.split("/")[2];
+    if ((overpassRestingUntil[endpoint] || 0) > Date.now()) { failures.push(`${host}: resting after a recent failure`); continue; }
     try {
-      const data = await getJSON(endpoint, { method: "POST", body: new URLSearchParams({ data: query }) }, 30000);
+      const data = await getJSON(endpoint, { method: "POST", body: new URLSearchParams({ data: query }) }, timeoutMs);
       overpassPreferred = index;
+      delete overpassRestingUntil[endpoint];
+      rememberOverpass();
       return data.elements || [];
     } catch (error) {
-      failures.push(`${endpoint.split("/")[2]}: ${error.message}`);   // the host name, then why it failed
+      overpassRestingUntil[endpoint] = Date.now() + (isBusyReply(error) ? OVERPASS_REST_MS.busy : OVERPASS_REST_MS.failed);
+      rememberOverpass();
+      failures.push(`${host}: ${error.message}`);   // the host name, then why it failed
     }
   }
   throw new Error(`The free map servers are busy or slow (${failures.join("; ")})`);
@@ -779,10 +806,11 @@ async function routeInfo(fromLat, fromLon, toLat, toLon) {
 // Adds routed drive times to the nearest airport and to each nearby place that was found.
 // A route that fails is skipped, so that item keeps its straight-line estimate.
 // Only if every route fails do we report a problem.
-async function addRoutes(parcel, airports) {
+// With `onlyMissing`, places and the airport that already have a routed time are not asked again.
+async function addRoutes(parcel, airports, onlyMissing = false) {
   const jobs = [];   // each job is [where to store the result, destination lat, destination lon]
   const airport = airports.find((a) => a.name === parcel.site.nearestAirport);
-  if (airport) jobs.push([(r) => { parcel.site.airportDriveMin = r.minutes; parcel.site.airportRoadMiles = r.miles; }, airport.lat, airport.lon]);
+  if (airport && !(onlyMissing && parcel.site.airportDriveMin != null)) jobs.push([(r) => { parcel.site.airportDriveMin = r.minutes; parcel.site.airportRoadMiles = r.miles; }, airport.lat, airport.lon]);
   // The same school can be the nearest elementary and middle school, so ask for each spot's route only once.
   const byLocation = new Map();   // "lat,lon" -> the places at that spot
   for (const place of Object.values(parcel.site.places || {})) {
@@ -792,6 +820,7 @@ async function addRoutes(parcel, airports) {
     byLocation.get(key).push(place);
   }
   for (const group of byLocation.values()) {
+    if (onlyMissing && group.every((place) => place.driveMin != null)) continue;
     jobs.push([(r) => { for (const place of group) { place.driveMin = r.minutes; place.roadMiles = r.miles; } }, group[0].lat, group[0].lon]);
   }
   if (jobs.length === 0) return;
@@ -1057,21 +1086,26 @@ function isPublicRoad(tags) {
 
 // Shortest distance, in feet, from a point to a road drawn as a list of points ({ lat, lon }).
 // We flatten the map around the point (meters east and north) and measure to each straight piece.
+// Overpass puts null where it trimmed a road at the edge of the search box, so a piece is only measured when both of
+// its ends are real points (joining across a gap would invent a straight road that is not there).
+// Returns null if the road has no real points at all.
 function distanceToRoadFeet(lat, lon, geometry) {
   const metersPerDegree = 111320;
   const x = (point) => (point.lon - lon) * Math.cos(lat * Math.PI / 180) * metersPerDegree;
   const y = (point) => (point.lat - lat) * metersPerDegree;
   let best = Infinity;
   for (let i = 0; i < geometry.length; i++) {
+    if (!geometry[i]) continue;
+    const next = i + 1 < geometry.length && geometry[i + 1] ? geometry[i + 1] : geometry[i];   // a lone point is measured on its own
     const [ax, ay] = [x(geometry[i]), y(geometry[i])];
-    const [bx, by] = i + 1 < geometry.length ? [x(geometry[i + 1]), y(geometry[i + 1])] : [ax, ay];
+    const [bx, by] = [x(next), y(next)];
     const [dx, dy] = [bx - ax, by - ay];
     const lengthSquared = dx * dx + dy * dy;
     // How far along the piece the closest spot is, from 0 (start) to 1 (end). The origin is the parcel.
     const along = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / lengthSquared));
     best = Math.min(best, Math.hypot(ax + along * dx, ay + along * dy));
   }
-  return Math.round(best * 3.28084);
+  return best === Infinity ? null : Math.round(best * 3.28084);
 }
 
 function roadsQuery(lat, lon, radiusM) {
@@ -1090,6 +1124,7 @@ function summarizeRoads(elements, lat, lon) {
       name: e.tags.name || e.tags.ref || "(unnamed road)", type: e.tags.highway, surface: roadSurface(e.tags),
       access: e.tags.access || null, publicRoad: isPublicRoad(e.tags), distanceFt: distanceToRoadFeet(lat, lon, e.geometry),
     }))
+    .filter((road) => road.distanceFt != null)   // a road trimmed away completely has no points left to measure
     .sort((a, b) => a.distanceFt - b.distanceFt);
   return {
     nearest: roads[0] || null,
@@ -1097,16 +1132,100 @@ function summarizeRoads(elements, lat, lon) {
   };
 }
 
-// Searches small circles first and widens only until a public paved road turns up.
-async function lookupRoads(lat, lon) {
+// OpenStreetMap through Overpass. Searches small circles first and widens only until a public paved road turns up.
+// Each server gets 20 seconds: roads are one of many lookups, and there are backups below if it is slow.
+async function lookupRoadsOsm(lat, lon) {
   let result = { nearest: null, nearestPublicPaved: null };
   let searched = 0;
   for (const radius of ROAD_SEARCH_RADII_M) {
     searched = radius;
-    result = summarizeRoads(await overpassQuery(roadsQuery(lat, lon, radius)), lat, lon);
+    result = summarizeRoads(await overpassQuery(roadsQuery(lat, lon, radius), 20000), lat, lon);
     if (result.nearestPublicPaved) break;
   }
-  return { ...result, searchedMeters: searched };
+  return { ...result, searchedMeters: searched, source: "osm" };
+}
+
+/* Backup 1: the US Census Bureau's TIGER road lines (TIGERweb map service). It has every public road with a
+   class code (MTFCC) but no surface, so only highways are counted as paved. */
+const TIGER_ROADS_URL = "https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Transportation/MapServer/";
+const TIGER_LAYERS = { primary: 2, secondary: 6, local: 8 };
+// Census road class codes: [plain name, surface, can the public use it]. Codes not listed (walkways, stairs,
+// bike and bridle paths) are not roads a vehicle can use, so they are skipped.
+const TIGER_ROAD_CLASSES = {
+  S1100: ["primary highway", "paved", true], S1200: ["secondary highway", "paved", true], S1630: ["ramp", "paved", true],
+  S1400: ["local road", "unknown", true], S1500: ["4WD trail", "unpaved", true], S1640: ["service drive", "unknown", true],
+  S1730: ["alley", "unknown", true], S1740: ["private road", "unknown", false], S1780: ["parking lot road", "unknown", false],
+};
+
+// ArcGIS road lines ({ attributes: { NAME, MTFCC }, geometry: { paths } }) -> { nearest, nearestPublicPaved }, like summarizeRoads.
+function summarizeTigerRoads(features, lat, lon) {
+  const roads = [];
+  for (const f of features) {
+    const kind = TIGER_ROAD_CLASSES[f.attributes && f.attributes.MTFCC];
+    const paths = f.geometry && f.geometry.paths;
+    if (!kind || !paths || !paths.length) continue;   // not a road a vehicle can use, or no shape
+    // Each path is a list of [longitude, latitude] pairs; the road's distance is that of its closest path.
+    // (Paths with no points give null, which Math.min would wrongly count as 0, so they are dropped first.)
+    const distances = paths.map((path) => distanceToRoadFeet(lat, lon, path.map(([x, y]) => ({ lat: y, lon: x })))).filter((d) => d != null);
+    if (!distances.length) continue;
+    const distanceFt = Math.min(...distances);
+    roads.push({ name: f.attributes.NAME || "(unnamed road)", type: kind[0], surface: kind[1], access: kind[2] ? null : "private",
+      publicRoad: kind[2], distanceFt });
+  }
+  roads.sort((a, b) => a.distanceFt - b.distanceFt);
+  return { nearest: roads[0] || null, nearestPublicPaved: roads.find((r) => r.publicRoad && r.surface === "paved") || null };
+}
+
+async function tigerRoads(layer, lat, lon, radiusM) {
+  const q = new URLSearchParams({ geometry: `${lon},${lat}`, geometryType: "esriGeometryPoint", inSR: "4326",
+    spatialRel: "esriSpatialRelIntersects", distance: String(radiusM), units: "esriSRUnit_Meter",
+    outFields: "NAME,MTFCC", returnGeometry: "true", outSR: "4326", geometryPrecision: "6", f: "json" });
+  const data = await getJSON(`${TIGER_ROADS_URL}${layer}/query?${q}`, {}, 20000);
+  if (data.error) throw new Error("Census roads service error");
+  return data.features || [];
+}
+
+// Local roads only up to 3 km (there can be thousands further out); highways as far as 10 km.
+async function lookupRoadsTiger(lat, lon) {
+  let result = { nearest: null, nearestPublicPaved: null };
+  let searched = 0;
+  for (const radius of ROAD_SEARCH_RADII_M) {
+    searched = radius;
+    const layers = radius <= 3000 ? [TIGER_LAYERS.local, TIGER_LAYERS.secondary, TIGER_LAYERS.primary] : [TIGER_LAYERS.secondary, TIGER_LAYERS.primary];
+    const features = (await Promise.all(layers.map((layer) => tigerRoads(layer, lat, lon, radius)))).flat();
+    const found = summarizeTigerRoads(features, lat, lon);
+    result = { nearest: result.nearest || found.nearest, nearestPublicPaved: found.nearestPublicPaved };
+    if (result.nearestPublicPaved) break;
+  }
+  return { ...result, searchedMeters: searched, source: "tiger" };
+}
+
+/* Backup 2: the OSRM routing server's "nearest" answer: the closest road a car can be routed on, with its name and
+   distance. It says nothing about surface or the nearest paved road. */
+function summarizeOsrmNearest(data) {
+  const w = data && data.code === "Ok" && data.waypoints && data.waypoints[0];
+  if (!w) return null;
+  return { name: w.name || "(unnamed road)", type: "road", surface: "unknown", access: null, publicRoad: true,
+    distanceFt: Math.round(w.distance * 3.28084) };
+}
+
+async function lookupRoadsOsrm(lat, lon) {
+  const data = await getJSON(`https://router.project-osrm.org/nearest/v1/driving/${lon},${lat}?number=1`, {}, 15000);
+  return { nearest: summarizeOsrmNearest(data), nearestPublicPaved: null, searchedMeters: null, source: "osrm" };
+}
+
+// Tries each road service in turn and keeps the first answer. Only if all three fail is the lookup a failure.
+const ROAD_SERVICES = [["OpenStreetMap", lookupRoadsOsm], ["Census TIGER roads", lookupRoadsTiger], ["OSRM nearest road", lookupRoadsOsrm]];
+async function lookupRoads(lat, lon) {
+  const failures = [];
+  for (const [name, lookup] of ROAD_SERVICES) {
+    try {
+      return await lookup(lat, lon);
+    } catch (error) {
+      failures.push(`${name}: ${error.message}`);
+    }
+  }
+  throw new Error(`No road service answered (${failures.join("; ")})`);
 }
 
 /* ---- groundwater levels, from USGS monitoring wells ---- */
@@ -1318,8 +1437,12 @@ async function lookupDisasters(stateFips, countyFips) {
   return summarizeDisasters(data.DisasterDeclarationsSummaries, since);
 }
 
+// The pieces of "More local conditions", in the order they are looked up (the keys of `jobs` below).
+const MORE_PIECES = ["countyProfile", "drought", "weather", "wind", "facilities", "disasters"];
+
 // Each piece is looked up on its own, like the Texas details: `failed` lists the pieces that did not answer.
-async function lookupMore(parcel, censusKey) {
+// `only` (a list of piece names) asks just those pieces; leave it out to ask them all.
+async function lookupMore(parcel, censusKey, only = null) {
   const { lat, lon, stateFips, countyFips } = parcel;
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("Bad coordinates");
   const jobs = {
@@ -1330,7 +1453,7 @@ async function lookupMore(parcel, censusKey) {
     facilities: () => lookupEcho(lat, lon),
     disasters: () => lookupDisasters(stateFips, countyFips),
   };
-  const names = Object.keys(jobs);
+  const names = Object.keys(jobs).filter((name) => !only || only.includes(name));
   const settled = await Promise.allSettled(names.map((n) => jobs[n]()));
   const out = { failed: [] };
   settled.forEach((r, i) => {
@@ -1445,9 +1568,12 @@ function summarizeTxPipelines(features, more) {
 const atPoint = (lat, lon, outFields) => ({ geometry: `${lon},${lat}`, geometryType: "esriGeometryPoint", outFields, resultRecordCount: "1" });
 const nearPoint = (lat, lon, miles, outFields, count) => ({ geometry: `${lon},${lat}`, geometryType: "esriGeometryPoint", distance: String(miles), units: "esriSRUnit_StatuteMile", outFields, resultRecordCount: String(count) });
 
+// The Texas pieces, in the order they are looked up (the keys of `jobs` below).
+const TEXAS_PIECES = ["parcel", "groundwaterDistrict", "schoolDistrict", "wells", "pipelines", "oilGasWells", "edwards"];
+
 // Each piece is looked up on its own: `failed` lists the pieces whose service did not answer, and everything else still shows.
-// A value of null means the service answered and nothing was found there.
-async function lookupTexas(lat, lon) {
+// A value of null means the service answered and nothing was found there. `only` asks just the named pieces.
+async function lookupTexas(lat, lon, only = null) {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("Bad coordinates");
   const jobs = {
     parcel: async () => {
@@ -1490,7 +1616,7 @@ async function lookupTexas(lat, lon) {
       return { inRechargeZone: features.length > 0 };
     },
   };
-  const names = Object.keys(jobs);
+  const names = Object.keys(jobs).filter((name) => !only || only.includes(name));
   const settled = await Promise.allSettled(names.map((n) => jobs[n]()));
   const out = { failed: [] };
   settled.forEach((r, i) => {
@@ -1509,7 +1635,12 @@ const SOURCE_STEPS = [
     p.site.floodBfeFt = flood ? flood.bfeFt : null;
   }],
   ["Terrain",  async (p) => { Object.assign(p.site, await lookupTerrain(p.lat, p.lon)); }],
-  ["Soil",     async (p) => { Object.assign(p.site, (await lookupSoil(p.lat, p.lon)) || {}); }],
+  ["Soil",     async (p) => {
+    const soil = await lookupSoil(p.lat, p.lon);   // null when there is no soil survey here
+    p.site.soilName = soil ? soil.soilName : null;
+    p.site.drainageClass = soil ? soil.drainageClass : null;
+    p.site.septicRating = soil ? soil.septicRating : null;
+  }],
   ["Soil details", async (p) => { p.site.soilDetails = await lookupSoilDetails(p.lat, p.lon); }],
   ["USDA", async (p) => { p.site.usda = await lookupUsda(p.lat, p.lon); }],
   ["Public land", async (p) => { p.site.publicLand = await lookupPublicLand(p.lat, p.lon); }],
@@ -1525,63 +1656,136 @@ const SOURCE_STEPS = [
   ["Hardiness", async (p) => { p.site.hardiness = await lookupHardiness(p.lat, p.lon); }],
 ];
 
-// Runs every lookup at once. One failure never stops the others; failures are listed on the parcel.
-async function lookupAll(parcel, onProgress) {
-  parcel.site = {};
-  const errors = [];
-  await Promise.all(SOURCE_STEPS.map(async ([label, step]) => {
+/* ---- deciding what to look up: everything, or only what is missing ---- */
+
+// The steps that failed last time. Parcels saved before v2.4.0 only have the error messages, which start with the step's name.
+function failedSteps(parcel) {
+  if (Array.isArray(parcel.failedSteps)) return parcel.failedSteps;
+  return (parcel.errors || []).map((message) => String(message).split(":")[0]);
+}
+
+// The value each step fills in. `undefined` means the step never ran, for example a lookup added after the parcel was saved.
+// (null means the service answered and found nothing, like a spot FEMA has not mapped: asking again would not help.)
+const STEP_VALUES = {
+  "County": (p) => p.stateFips, "Flood": (p) => p.site.floodZone, "Terrain": (p) => p.site.elevationFt,
+  "Soil": (p) => p.site.septicRating, "Soil details": (p) => p.site.soilDetails, "USDA": (p) => p.site.usda,
+  "Public land": (p) => p.site.publicLand, "Groundwater": (p) => p.site.groundwater, "Wetlands": (p) => p.site.wetlands,
+  "Roads": (p) => p.site.roads, "Climate": (p) => p.site.climate, "Rainfall": (p) => p.site.annualRainIn,
+  "Internet": (p) => p.site.internet, "Nearby": (p) => p.site.places, "Hazards": (p) => p.site.hazards,
+  "Hardiness": (p) => p.site.hardiness,
+};
+
+// Pieces of More conditions or Texas to ask again: those that failed, those never asked, and any `extra` says are missing.
+// Returns null to ask every piece (the whole group is missing), or a list, which can be empty.
+function missingPieces(group, names, extra = () => false) {
+  if (!group) return null;
+  return names.filter((name) => !(name in group) || (group.failed || []).includes(name) || extra(name, group));
+}
+
+// True when a nearby place, or the airport, has no routed drive time yet.
+function routesMissing(site) {
+  if (site.airportMiles != null && site.airportDriveMin == null) return true;
+  return Object.values(site.places || {}).some((place) => place && place.driveMin == null);
+}
+
+// What a lookup run will do. `mode` is "all" (a new parcel, a moved pin, or Refresh all) or "missing" (Refresh data).
+// Returns { steps: [labels], routes: true/false, tax: true/false, more, texas, total, nothingToDo }, where `more` and
+// `texas` are false (skip), null (every piece) or a list of piece names. `total` counts the lookups for the progress note.
+function planLookups(parcel, mode, s) {
+  const site = parcel.site || {};
+  const everything = mode === "all" || !parcel.fetchedAt;
+  const failed = failedSteps(parcel);
+  const isMissing = (label) => everything || failed.includes(label) || STEP_VALUES[label]({ ...parcel, site }) === undefined;
+  // The airport is worked out from the built-in list, with no web request, so it is always redone.
+  const steps = SOURCE_STEPS.map(([label]) => label).filter((label) => label === "Airport" || isMissing(label));
+  const countyAgain = steps.includes("County");
+  const routes = everything || failed.includes("Routes") || steps.includes("Nearby") || routesMissing(site);
+  const tax = everything || countyAgain || failed.includes("Tax rate") || site.taxRate === undefined
+    || Boolean(site.taxRate && site.taxRate.needsKey && s.censusKey);   // it was waiting for a key, and now there is one
+  const keyNowSet = (name, group) => name === "countyProfile" && Boolean(group.countyProfile && group.countyProfile.needsKey && s.censusKey);
+  let more = everything || countyAgain ? null : missingPieces(site.more, MORE_PIECES, keyNowSet);
+  if (Array.isArray(more) && more.length === 0) more = false;
+  // Texas is only looked up for Texas parcels; a parcel whose state just turned up may need it for the first time.
+  let texas = false;
+  if (isTexasParcel(parcel)) {
+    texas = everything ? null : missingPieces(site.texas, TEXAS_PIECES);
+    if (Array.isArray(texas) && texas.length === 0) texas = false;
+  }
+  const total = steps.length + (routes ? 1 : 0) + (tax ? 1 : 0) + (more !== false ? 1 : 0) + (texas !== false ? 1 : 0);
+  const nothingToDo = steps.every((label) => label === "Airport") && !routes && !tax && more === false && texas === false;
+  return { steps, routes, tax, more, texas, total, nothingToDo };
+}
+
+// New answers for some pieces, laid over the earlier ones. Only missing pieces were asked, so `failed` is the new list.
+function mergePieces(earlier, fresh) {
+  if (!earlier) return fresh;
+  return { ...earlier, ...fresh, failed: fresh.failed };
+}
+
+// Runs the planned lookups at once. One failure never stops the others; failures are listed on the parcel.
+// "all" starts from nothing; "missing" keeps everything already found and only fills the gaps.
+async function lookupAll(parcel, onProgress, mode = "all", plan = planLookups(parcel, mode, settings)) {
+  if (mode === "all" || !parcel.site) parcel.site = {};
+  const errors = [], failedNow = [];
+  const fail = (label, message) => { errors.push(`${label}: ${message}`); failedNow.push(label); onProgress(label, "failed"); };
+  await Promise.all(SOURCE_STEPS.filter(([label]) => plan.steps.includes(label)).map(async ([label, step]) => {
     onProgress(label, "running");
     try {
       await step(parcel);
       onProgress(label, "ok");
     } catch (error) {
-      errors.push(`${label}: ${error.message}`);
-      onProgress(label, "failed");
+      fail(label, error.message);
     }
   }));
   // Routing needs the airport and places found above, so it runs after them.
-  onProgress("Routes", "running");
-  try {
-    await addRoutes(parcel, activeAirports(settings));
-    onProgress("Routes", "ok");
-  } catch (error) {
-    errors.push(`Routes: ${error.message}`);
-    onProgress("Routes", "failed");
+  if (plan.routes) {
+    onProgress("Routes", "running");
+    try {
+      await addRoutes(parcel, activeAirports(settings), mode !== "all");
+      onProgress("Routes", "ok");
+    } catch (error) {
+      fail("Routes", error.message);
+    }
   }
   // The county tax rate needs the county found above, so it also runs afterward.
-  onProgress("Tax rate", "running");
-  try {
-    parcel.site.taxRate = await lookupTaxRate(parcel.stateFips, parcel.countyFips, settings.censusKey);
-    onProgress("Tax rate", "ok");
-  } catch (error) {
-    errors.push(`Tax rate: ${error.message}`);
-    onProgress("Tax rate", "failed");
+  if (plan.tax) {
+    onProgress("Tax rate", "running");
+    try {
+      parcel.site.taxRate = await lookupTaxRate(parcel.stateFips, parcel.countyFips, settings.censusKey);
+      onProgress("Tax rate", "ok");
+    } catch (error) {
+      fail("Tax rate", error.message);
+    }
   }
   // More local conditions. They need the county codes found above, so they also run afterward.
-  onProgress("More conditions", "running");
-  try {
-    parcel.site.more = await lookupMore(parcel, settings.censusKey);
-    // Keep what came back (the report says which pieces could not load), but count a total failure as a failed lookup.
-    const allFailed = parcel.site.more.failed.length === Object.keys(parcel.site.more).length - 1;
-    if (allFailed) errors.push("More conditions: no service answered");
-    onProgress("More conditions", allFailed ? "failed" : "ok");
-  } catch (error) {
-    errors.push(`More conditions: ${error.message}`);
-    onProgress("More conditions", "failed");
+  if (plan.more !== false) {
+    onProgress("More conditions", "running");
+    try {
+      const fresh = await lookupMore(parcel, settings.censusKey, plan.more);
+      parcel.site.more = mergePieces(parcel.site.more, fresh);
+      // Keep what came back (the report says which pieces could not load), but count a total failure as a failed lookup.
+      const allFailed = fresh.failed.length > 0 && fresh.failed.length === Object.keys(fresh).length - 1;
+      if (allFailed) fail("More conditions", "no service answered");
+      else onProgress("More conditions", "ok");
+    } catch (error) {
+      fail("More conditions", error.message);
+    }
   }
   // Texas-only lookups. They need the state found above, so they run last, and only for Texas parcels.
-  if (isTexasParcel(parcel)) {
+  if (plan.texas !== false) {
     onProgress("Texas", "running");
     try {
-      parcel.site.texas = await lookupTexas(parcel.lat, parcel.lon);
-      const allFailed = parcel.site.texas.failed.length === Object.keys(parcel.site.texas).length - 1;
-      if (allFailed) errors.push("Texas: no Texas service answered");
-      onProgress("Texas", allFailed ? "failed" : "ok");
+      const fresh = await lookupTexas(parcel.lat, parcel.lon, plan.texas);
+      parcel.site.texas = mergePieces(parcel.site.texas, fresh);
+      const allFailed = fresh.failed.length > 0 && fresh.failed.length === Object.keys(fresh).length - 1;
+      if (allFailed) fail("Texas", "no Texas service answered");
+      else onProgress("Texas", "ok");
     } catch (error) {
-      errors.push(`Texas: ${error.message}`);
-      onProgress("Texas", "failed");
+      fail("Texas", error.message);
     }
   }
   parcel.errors = errors;
-  parcel.fetchedAt = new Date().toISOString();
+  parcel.failedSteps = failedNow;
+  if (mode === "all") { parcel.fetchedAt = new Date().toISOString(); delete parcel.filledAt; }
+  else parcel.filledAt = new Date().toISOString();
 }
