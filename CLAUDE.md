@@ -1,6 +1,6 @@
 # Homestead Land Screener — project brief for Claude Code
 
-Owner: Jason Nicholas. Current version: **v2.7.0**. Read this first, then `README.md` (features, data sources, version history) and `SPEC.md` (numbered requirements R1–R50, scoring rules, architecture).
+Owner: Jason Nicholas. Current version: **v2.7.1**. Read this first, then `README.md` (features, data sources, version history) and `SPEC.md` (numbered requirements R1–R50, scoring rules, architecture).
 
 ## What it is
 A browser-only static site that scores rural land parcels from free public data. The first buyer (the owner) is looking for about 10 acres in central Texas within 2 hours of the San Antonio or Austin airports, but it works anywhere in the US. No backend, no accounts, no API keys, no build step. Data is saved in the browser (localStorage).
@@ -47,13 +47,13 @@ TxGIO parcels (identify request; fields: PROP_ID, LEGAL_AREA, GIS_AREA, LAND/IMP
 
 ## Git workflow used so far
 1. Branch per feature (`feature/<name>`), commit, merge into `main` with `--no-ff`, tag `vX.Y.Z`.
-2. Update `README.md` (version history), `SPEC.md` ("Last updated for", requirement rows, test counts), `APP_VERSION` and `APP_UPDATED` in `js/config.js`, and `version` in `package.json` in the same change (`tests/version.test.js` checks they agree).
+2. Update `README.md` (version history), `SPEC.md` ("Last updated for", requirement rows, test counts), `APP_VERSION` and `APP_UPDATED` in `js/config.js`, the `?v=` number on every script and stylesheet link in `index.html`, and `version` in `package.json` in the same change (`tests/version.test.js` checks they agree).
 3. Commit trailers used by Claude: `Co-Authored-By: Claude <noreply@anthropic.com>` (use the model's current name).
 4. Release flow on the owner's PC: `npm test`, `git add -A`, `git commit`, `git pull --rebase`, `git push`; Pages updates a minute or two after the push.
 
 ## Testing before any release
-- `npm test` → 183 unit tests, must all pass (also runs in GitHub Actions).
-- `python test_site.py` (needs Playwright and Chromium, installed on the owner's PC) → 229/229 on v2.7.0.
+- `npm test` → 184 unit tests, must all pass (also runs in GitHub Actions).
+- `python test_site.py` (needs Playwright and Chromium, installed on the owner's PC) → 229/229 on v2.7.1.
 - After shipping, spot-check the live site in a real browser; mocked tests cannot prove a real service still answers.
 
 ## Known gaps and ideas
