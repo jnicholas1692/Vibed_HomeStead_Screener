@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v2.7.1.
+> Last updated for v2.8.0.
 
 ## 1. Problem
 
@@ -105,6 +105,9 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R68 | People and community | A People and community section (in a new People and safety category) shows population, median age, share under 18, median household income, share below the poverty line, share with a bachelor's degree or more, share working from home, share of households with broadband and median home value, for the census tract (its ID comes with the county lookup) next to the whole county, from Census Reporter without a key; it names the survey release; it replaces the old county profile that needed a Census key | `feature/people-and-crime` |
 | R69 | Crime | A Crime section shows the violent and property offenses the county sheriff reported to the FBI for the last full year (the year before when the FBI's service fails for it), the rate per 100,000 people served, and the Texas and US rates; it needs a free api.data.gov key saved in Settings > Costs and loans (with a sign-up link), sent only to api.usa.gov; without a key nothing is asked and the section says how to get one; a refused key says so; fewer than 12 reported months gets a notice; Refresh data asks for it once a key is added; Reset to defaults keeps the key | `feature/people-and-crime` |
 | R70 | Updates load together | Every local script and stylesheet link in index.html ends in ?v= and the app version, so a new release makes browsers fetch all of its files fresh instead of mixing cached old files with new ones (GitHub Pages lets browsers keep files about 10 minutes); a test fails if any link's number differs from APP_VERSION or a script in js/ is not loaded | `fix/cache-busting` |
+| R71 | Choose list columns | A Columns menu above the list has a tick box for each ticked criterion except price and flood (which always have columns); ticking adds a column and unticking removes it, in your criteria order; until you change it the first three show; the choice is saved in the browser; the menu stays open while you change it and closes on a click elsewhere | `feature/list-columns-sort-filter` |
+| R72 | Sort by any criterion | The Sort menu has "low to high" and "high to low" for every ticked criterion (ratings like septic say "score"), and each criterion column heading (and Price) has an arrow button that sorts low to high, then high to low; values are in the criterion's unit (dollars, percent, inches a year, minutes, Mbps, feet) or its 0 to 100 score for ratings; parcels with no data go last either way | `feature/list-columns-sort-filter` |
+| R73 | Filter by a value | A Filter row picks a criterion, "at most" or "at least", and a value in that criterion's unit (shown in the box); parcels outside it are hidden, parcels with no data for it are always kept; a note says what the filter does and how many parcels are hidden; Clear filter removes it; the filter is saved in the browser | `feature/list-columns-sort-filter` |
 
 ## 5. Scoring rules
 
@@ -176,8 +179,8 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 
 ## 10. Testing
 
-- 184 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
-- 229 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
+- 188 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
+- 247 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
 - Live checks against real services are manual (see the tutorial).
 
 ## 11. What I would do next

@@ -216,8 +216,7 @@ function renderList(items) {
     return;
   }
   updateCompareButton();
-  // Your first few ticked criteria get their own columns, in your order. Price and flood already have columns.
-  const columns = chosenCriteria(settings).filter((key) => key !== "price" && key !== "flood").slice(0, LIST_CRITERIA_COLUMNS);
+  const columns = listColumns();
   const rows = items.map(({ parcel: p, score }, i) => {
     const site = p.site || {};
     return `<tr class="row" data-open="${esc(p.id)}">
@@ -234,7 +233,7 @@ function renderList(items) {
     </tr>`;
   }).join("");
   $("list").innerHTML = `<div class="table-scroll"><table>
-    <thead><tr><th class="col-pick">${tipSpan("Pick", "Tick two or three parcels, then press Compare to see them side by side.")}</th><th class="num col-n">${tipSpan("#", "Rank in the list, by the sort you chose.")}</th><th>${tipSpan("Parcel", "Your name for the parcel, with its county and size. Click a row to open its full report.")}</th><th class="num">${tipSpan("Price", "The asking price you entered.")}</th><th>${tipSpan("Score", "0 to 100: the plain average of the criteria you ticked in Settings, each counting the same. A criterion with no data for the parcel is skipped. Open the report to see each one.")}</th><th>${tipSpan("USDA", "Is the spot in an area where USDA Rural Development guaranteed home loans are available? Yes means it is outside USDA's mapped ineligible areas.")}</th><th>${tipSpan("Flood zone", "Is the spot in a high-risk FEMA flood zone (zones starting with A or V)? Yes means high risk.")}</th>${columns.map((key, n) => `<th class="${n > 0 ? "col-air" : ""}">${helpLabel(FACTOR_LABELS[key])}</th>`).join("")}<th class="col-del" aria-label="Delete"></th></tr></thead>
+    <thead><tr><th class="col-pick">${tipSpan("Pick", "Tick two or three parcels, then press Compare to see them side by side.")}</th><th class="num col-n">${tipSpan("#", "Rank in the list, by the sort you chose.")}</th><th>${tipSpan("Parcel", "Your name for the parcel, with its county and size. Click a row to open its full report.")}</th><th class="num">${tipSpan("Price", "The asking price you entered.")}${sortButton("price")}</th><th>${tipSpan("Score", "0 to 100: the plain average of the criteria you ticked in Settings, each counting the same. A criterion with no data for the parcel is skipped. Open the report to see each one.")}</th><th>${tipSpan("USDA", "Is the spot in an area where USDA Rural Development guaranteed home loans are available? Yes means it is outside USDA's mapped ineligible areas.")}</th><th>${tipSpan("Flood zone", "Is the spot in a high-risk FEMA flood zone (zones starting with A or V)? Yes means high risk.")}</th>${columns.map((key, n) => `<th class="${n > 0 ? "col-air" : ""}">${helpLabel(FACTOR_LABELS[key])}${sortButton(key)}</th>`).join("")}<th class="col-del" aria-label="Delete"></th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 
@@ -251,8 +250,77 @@ function showComparison() {
   $("dlg-compare").showModal();
 }
 
+/* ---- the list controls: columns, sorting by a criterion, and the value filter ---- */
+
+// The criteria shown as list columns, in your criteria order: the ones you picked in the Columns menu, or until you
+// pick, the first few you ticked. Price and flood have their own columns, so they are not offered.
+const COLUMN_CHOICES = () => chosenCriteria(settings).filter((key) => key !== "price" && key !== "flood");
+function listColumns() {
+  const choices = COLUMN_CHOICES();
+  return Array.isArray(view.columns) ? choices.filter((key) => view.columns.includes(key)) : choices.slice(0, LIST_CRITERIA_COLUMNS);
+}
+
+// The small button in a column heading: sorts by that criterion low to high, then high to low on the next click.
+function sortButton(key) {
+  const now = CRITERION_SORT.exec(view.sort || "");
+  const dir = now && now[1] === key ? now[2] : null;
+  const next = dir === "asc" ? "high to low" : "low to high";
+  return ` <button class="sort-btn${dir ? " on" : ""}" type="button" data-sort-key="${key}" aria-label="Sort by ${esc(FACTOR_LABELS[key])}, ${next}" ${tipAttr(`Sort the list by ${FACTOR_LABELS[key]}, ${next}. Parcels with no data go last.`)}>${dir === "asc" ? "&#9650;" : dir === "desc" ? "&#9660;" : "&#8661;"}</button>`;
+}
+
+// "Slope: low to high" and the like, for the Sort menu.
+function criterionSortLabel(key, dir) {
+  const unit = criterionUnit(key);
+  return `${FACTOR_LABELS[key]}${unit === "score" ? " score" : ""}: ${dir === "asc" ? "low to high" : "high to low"}`;
+}
+
+// Rebuilds the Sort menu, the Columns menu and the filter's criterion list, which all follow your ticked criteria.
+function renderListControls() {
+  const chosen = chosenCriteria(settings);
+  const sortKeys = new Set(chosen);
+  const current = CRITERION_SORT.exec(view.sort || "");
+  if (current) sortKeys.add(current[1]);   // a sort you picked stays in the menu even if you untick the criterion
+  $("sort-by").innerHTML = Object.entries(SORTS).map(([key, sort]) => `<option value="${key}">${esc(sort.label)}</option>`).join("")
+    + [...sortKeys].map((key) => `<option value="crit:${key}:asc">${esc(criterionSortLabel(key, "asc"))}</option><option value="crit:${key}:desc">${esc(criterionSortLabel(key, "desc"))}</option>`).join("");
+  $("sort-by").value = view.sort;
+  const shown = listColumns();
+  const choices = COLUMN_CHOICES();
+  $("col-menu").innerHTML = choices.length
+    ? choices.map((key) => `<label><input type="checkbox" data-col="${key}"${shown.includes(key) ? " checked" : ""}> ${esc(FACTOR_LABELS[key])}</label>`).join("")
+      + `<span class="sub">Only criteria you ticked in Settings can be columns. Price and flood always show.</span>`
+    : `<span class="sub">Tick criteria in Settings &gt; Scoring to add them as columns.</span>`;
+  const filterKeys = new Set(chosen);
+  if (view.filter) filterKeys.add(view.filter.key);
+  $("filter-crit").innerHTML = `<option value="">None</option>` + [...filterKeys].map((key) => `<option value="${key}">${esc(FACTOR_LABELS[key])}</option>`).join("");
+  $("filter-crit").value = view.filter ? view.filter.key : "";
+  $("filter-op").value = view.filter ? view.filter.op : "max";
+  $("filter-value").value = view.filter && view.filter.value != null ? String(view.filter.value) : "";
+  $("filter-value").placeholder = view.filter ? (criterionUnit(view.filter.key) === "$" ? "dollars" : criterionUnit(view.filter.key)) : "";
+  for (const id of ["filter-op", "filter-value", "filter-clear"]) $(id).disabled = !view.filter;
+}
+
+// Says what the filter is doing, and how many parcels it hid.
+function renderFilterHint(shownCount) {
+  const f = view.filter;
+  if (!f || !Number.isFinite(f.value)) { $("filter-hint").hidden = true; return; }
+  const unit = criterionUnit(f.key);
+  const valueText = unit === "$" ? money(f.value) : unit === "%" ? `${f.value}%` : unit === "score" ? `a score of ${f.value}` : `${f.value} ${unit}`;
+  const others = parcels.length - shownCount;
+  $("filter-hint").hidden = false;
+  $("filter-hint").textContent = `Showing parcels with ${FACTOR_LABELS[f.key]} ${f.op === "max" ? "at most" : "at least"} ${valueText}${others ? `; ${others} hidden by the filters` : ""}. Parcels with no data for it are still shown.`;
+}
+
+// Saves a change to how the list looks, and redraws it.
+function changeView(changes) {
+  view = { ...view, ...changes };
+  writeStored(VIEW_KEY, view);
+  renderAll();
+}
+
 function renderAll() {
+  renderListControls();
   const items = ranked();
+  renderFilterHint(items.length);
   renderList(items);
   drawMarkers(items);
 }
@@ -1774,7 +1842,6 @@ $("btn-clear").addEventListener("click", () => {
   clearAllData();
   compareIds = [];
   for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
-  $("sort-by").value = view.sort;
   $("filter-status").value = view.status;
   $("hide-dealbreakers").checked = view.hideDealbreakers;
   renderAll();
@@ -1791,16 +1858,49 @@ $("file-import").addEventListener("change", (event) => {
 });
 
 // The sort and filter controls above the list.
-$("sort-by").innerHTML = Object.entries(SORTS).map(([key, sort]) => `<option value="${key}">${esc(sort.label)}</option>`).join("");
-$("sort-by").value = view.sort;
 $("filter-status").value = view.status;
 $("hide-dealbreakers").checked = view.hideDealbreakers;
 function viewChanged() {
-  view = { sort: $("sort-by").value, status: $("filter-status").value, hideDealbreakers: $("hide-dealbreakers").checked };
-  writeStored(VIEW_KEY, view);
-  renderAll();
+  changeView({ sort: $("sort-by").value, status: $("filter-status").value, hideDealbreakers: $("hide-dealbreakers").checked });
 }
 for (const id of ["sort-by", "filter-status", "hide-dealbreakers"]) $(id).addEventListener("change", viewChanged);
+// The Columns menu: ticking a criterion adds its column, unticking removes it.
+$("col-menu").addEventListener("change", (event) => {
+  const box = event.target.closest("[data-col]");
+  if (!box) return;
+  const shown = new Set(listColumns());
+  if (box.checked) shown.add(box.dataset.col); else shown.delete(box.dataset.col);
+  changeView({ columns: COLUMN_CHOICES().filter((key) => shown.has(key)) });
+  $("col-picker").open = true;   // redrawing the list keeps the menu open so several can be changed in a row
+});
+// A tap or click outside the Columns menu closes it.
+document.addEventListener("click", (event) => { if (!event.target.closest("#col-picker")) $("col-picker").open = false; });
+// A sort button in a column heading.
+$("list").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-sort-key]");
+  if (!button) return;
+  event.stopPropagation();   // the heading is not a parcel row, but keep the click from doing anything else
+  const key = button.dataset.sortKey;
+  changeView({ sort: view.sort === `crit:${key}:asc` ? `crit:${key}:desc` : `crit:${key}:asc` });
+});
+// The value filter. A criterion with no number typed yet filters nothing.
+$("filter-crit").addEventListener("change", () => {
+  const key = $("filter-crit").value;
+  changeView({ filter: key ? { key, op: view.filter ? view.filter.op : "max", value: null } : null });
+  if (key) $("filter-value").focus();
+});
+$("filter-op").addEventListener("change", () => changeView({ filter: { ...view.filter, op: $("filter-op").value } }));
+$("filter-value").addEventListener("input", () => {
+  const value = parseNumber($("filter-value").value);
+  view = { ...view, filter: { ...view.filter, value: Number.isFinite(value) ? value : null } };
+  writeStored(VIEW_KEY, view);
+  // Only the list redraws while typing, so the box keeps its focus and caret.
+  const items = ranked();
+  renderList(items);
+  drawMarkers(items);
+  renderFilterHint(items.length);
+});
+$("filter-clear").addEventListener("click", () => changeView({ filter: null }));
 
 $("app-version").textContent = versionText(APP_VERSION, APP_UPDATED);
 initMap();

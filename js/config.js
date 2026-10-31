@@ -2,7 +2,7 @@
 
 // The version shown in the page footer and the day it was released. Change both with every release,
 // along with "version" in package.json and the README version history (tests/version.test.js checks they agree).
-const APP_VERSION = "2.7.1";
+const APP_VERSION = "2.8.0";
 const APP_UPDATED = "2026-10-31";   // year-month-day
 
 // Where sources.js keeps which map server worked last and which are resting (Clear data erases it too).
@@ -102,7 +102,9 @@ const REPORT_GROUPS = [
 ];
 
 // How the list is sorted and filtered when you first open the page.
-const DEFAULT_VIEW = { sort: "score", status: "all", hideDealbreakers: false };
+// `columns` lists the criteria shown as list columns (null means the first few you ticked), and `filter` is
+// { key, op: "max" | "min", value } to keep only parcels at most or at least a value (null means no filter).
+const DEFAULT_VIEW = { sort: "score", status: "all", hideDealbreakers: false, columns: null, filter: null };
 
 // Fixed rules for the 30-year home loan comparison (FHA minimums as of 2026).
 const LOAN_RULES = {
@@ -586,6 +588,11 @@ const UI_TIPS = {
   "sort-by": "Choose how the list is ordered.",
   "filter-status": "Show only parcels with this status. You set a parcel's status inside its report.",
   "hide-dealbreakers": "Hide parcels that hit a dealbreaker you switched on in Settings.",
+  "col-picker-button": "Choose which of your criteria get their own column in the list. The choice is remembered in this browser.",
+  "filter-crit": "Hide parcels by one criterion's value. Parcels with no data for it are still shown, so a failed lookup never hides land.",
+  "filter-op": "Keep parcels at most (or at least) the value next to it.",
+  "filter-value": "The value to compare with, in the criterion's own unit, shown in the box. Septic, flood risk, natural hazards and ag valuation use their 0 to 100 score.",
+  "filter-clear": "Remove the filter and show every parcel again.",
   "btn-compare": "Open a side-by-side table of the two or three parcels you ticked in the Pick column.",
   "btn-demo": "Add three made-up parcels so you can see how the app works. Delete them when you are done.",
   "btn-save": "Save the parcel and look up its data from the public sources.",

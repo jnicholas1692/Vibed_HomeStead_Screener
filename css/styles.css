@@ -100,6 +100,19 @@
 .list-controls label { min-width: 140px; }
 .list-controls label.check { display: flex; align-items: center; gap: 6px; min-width: 0; padding-bottom: 8px; }
 .list-controls input[type="checkbox"] { width: auto; }
+/* The Columns menu: a button that opens a small box of tick boxes under it */
+.col-picker { position: relative; }
+.col-picker > summary { list-style: none; cursor: pointer; }
+.col-picker > summary::-webkit-details-marker { display: none; }
+.col-menu { position: absolute; z-index: 20; top: 100%; right: 0; min-width: 220px; display: grid; gap: 6px; padding: 10px 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); }
+.col-menu label { display: flex; align-items: center; gap: 6px; min-width: 0; color: var(--ink); }
+.col-menu input { width: auto; margin: 0; }
+.list-filter { padding-top: 0; }
+.list-filter label { min-width: 110px; }
+/* The small sort button in a column heading */
+.sort-btn { border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 2px; font-size: 0.85rem; }
+.sort-btn.on { color: var(--accent); font-weight: 700; }
 
 .table-scroll { overflow-x: auto; }
   table { width: 100%; border-collapse: collapse; }
