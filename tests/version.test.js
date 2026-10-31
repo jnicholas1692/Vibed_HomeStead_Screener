@@ -18,6 +18,18 @@ test("the footer version matches package.json, the README and the SPEC", () => {
   assert.match(app.get("APP_UPDATED"), /^\d{4}-\d{2}-\d{2}$/);
 });
 
+test("every local script and stylesheet link carries the app version, so an update loads all its files together", () => {
+  const html = read("index.html");
+  const version = app.get("APP_VERSION");
+  // Every <script src="js/..."> and <link href="css/..."> in the page, with what follows "?v=" (or nothing).
+  const links = [...html.matchAll(/(?:src|href)="((?:js|css)\/[^"?]+)(?:\?v=([^"]*))?"/g)].map((m) => [m[1], m[2] || null]);
+  assert.ok(links.length >= 6, "found the scripts and the stylesheet");
+  assert.deepEqual(links.filter(([, v]) => v !== version), [], `every link should end in ?v=${version}`);
+  // And every script file in js/ is loaded by the page.
+  const scripts = fs.readdirSync(path.join(__dirname, "..", "js")).filter((f) => f.endsWith(".js")).map((f) => `js/${f}`);
+  assert.deepEqual(scripts.filter((f) => !links.some(([p]) => p === f)), []);
+});
+
 test("the footer line spells out the date without slipping a day", () => {
   const versionText = app.get("versionText");
   assert.equal(versionText("2.2.0", "2026-10-31"), "Version 2.2.0, last updated October 31, 2026");
