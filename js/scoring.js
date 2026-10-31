@@ -99,6 +99,7 @@ function findDealbreakers(parcel, s, parts) {
   if (on.hazards && parts.hazards === 0) found.push("FEMA rates natural hazard risk Very High");
   if (on.hospital && parts.hospital === 0) found.push(`Hospital is ${s.hospitalMaxMin} minutes or more away`);
   if (on.grocery && parts.grocery === 0) found.push(`Grocery store is ${s.groceryMaxMin} minutes or more away`);
+  if (on.agValuation && parts.agValuation === 0) found.push("No ag or wildlife valuation");
   return found;
 }
 
@@ -528,7 +529,7 @@ function buildComparison(items, s) {
   const sameAs = {
     price: "Asking price", flood: "In a flood zone?", septic: "Septic suitability", slope: "Slope", rain: "Rain per year",
     airport: "Drive to airport", internet: "Internet (best non-satellite)", groundwater: "Groundwater depth (nearest well)",
-    hazards: "Natural hazard risk (FEMA)", hospital: "Hospital (emergency)", grocery: "Grocery store",
+    hazards: "Natural hazard risk (FEMA)", hospital: "Hospital (emergency)", grocery: "Grocery store", agValuation: "Tax exemptions",
   };
   const covered = new Set(chosen.map((key) => sameAs[key]));
   const rowUnlessCovered = (label, ...rest) => { if (!covered.has(label)) row(label, ...rest); };
@@ -542,6 +543,8 @@ function buildComparison(items, s) {
   row("USDA loan area", usda.map((u) => (u ? (u.eligibleArea ? 1 : 0) : null)), usda.map((u) => (u === undefined ? "not looked up" : u === null ? "no data" : (u.eligibleArea ? "Yes" : "No"))), "larger");
   row("Acres", items.map((it) => it.parcel.acres), items.map((it) => it.parcel.acres ?? "?"));
   rowUnlessCovered("In a flood zone?", items.map(() => null), items.map((it) => floodAnswer(site(it).floodZone, site(it).floodSfha).text));
+  rowUnlessCovered("Tax exemptions", items.map(() => null), items.map((it) => exemptionsText(it.parcel.exemptions)
+    || (openSpaceValuation(it.parcel).value ? "Ag or wildlife valuation likely" : "unknown")));
   rowUnlessCovered("Septic suitability", items.map(() => null), items.map((it) => site(it).septicRating || "unknown"));
   rowUnlessCovered("Slope", items.map((it) => site(it).slopePct ?? null), items.map((it) => (site(it).slopePct == null ? "unknown" : site(it).slopePct + "%")), "smaller");
   rowUnlessCovered("Rain per year", items.map(() => null), items.map((it) => (site(it).annualRainIn == null ? "unknown" : site(it).annualRainIn + " in")));
@@ -631,6 +634,47 @@ function usesText(uses) {
   return names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
+/* ---- tax exemptions and special valuations ---- */
+
+// The exemptions you ticked on a parcel, in words, or null when you have not said.
+function exemptionsText(ex) {
+  if (!ex) return null;
+  const names = [];
+  if (ex.ag) names.push("ag (open-space) valuation");
+  if (ex.wildlife) names.push("wildlife management valuation");
+  if (ex.homestead) names.push("homestead exemption");
+  if (names.length) return names.join(", ").replace(/^./, (c) => c.toUpperCase());   // capitalize the first letter
+  return ex.none ? "None" : null;
+}
+
+// Does the land have ag or wildlife (open-space) valuation? { value: true | false | null, from: "you" | "appraisal" | null }.
+// What you ticked wins. Otherwise a Texas appraisal record in state land category D1 ("qualified open-space land")
+// counts as a likely yes. Most counties leave that category blank in the statewide data, so it is often unknown.
+function openSpaceValuation(parcel) {
+  const ex = parcel.exemptions;
+  if (ex && (ex.ag || ex.wildlife)) return { value: true, from: "you" };
+  if (ex && ex.none) return { value: false, from: "you" };
+  const record = parcel.site && parcel.site.texas && parcel.site.texas.parcel;
+  if (record && record.openSpaceLikely) return { value: true, from: "appraisal" };
+  return { value: null, from: null };
+}
+
+// The Comptroller's page for a Texas county's appraisal district: "Fort Bend" -> .../county-directory/fortbend.php.
+function appraisalDistrictUrl(county) {
+  const slug = String(county || "").toLowerCase().replace(/ county$/, "").replace(/[^a-z]/g, "");   // keep letters only
+  return slug ? `${TX_CAD_DIRECTORY_URL}${slug}.php` : TX_CAD_DIRECTORY_URL;
+}
+
+// A rough yearly tax on the appraised total value, before exemptions and caps: { amount, ratePct, source } or null.
+function estimatedTaxBeforeExemptions(parcel, s) {
+  const record = parcel.site && parcel.site.texas && parcel.site.texas.parcel;
+  if (!record || !(record.marketValue > 0)) return null;
+  const county = parcel.site.taxRate;
+  const useCounty = s.costs.useCountyTax !== false && county && county.ratePct > 0;
+  const ratePct = useCounty ? county.ratePct : s.costs.taxPct;
+  return { amount: Math.round(record.marketValue * ratePct / 100), ratePct, source: useCounty ? "county" : "setting" };
+}
+
 // The criteria you ticked, in your order.
 function chosenCriteria(s) {
   const c = normalizeCriteria(s.criteria);
@@ -654,6 +698,7 @@ function criterionScores(parcel, s) {
     hazards: scoreHazards(site.hazards),
     hospital: range(placeDriveMinutes(site, "hospital", s), s.hospitalFullMin, s.hospitalMaxMin),
     grocery: range(placeDriveMinutes(site, "grocery", s), s.groceryFullMin, s.groceryMaxMin),
+    agValuation: (() => { const v = openSpaceValuation(parcel).value; return v === null ? null : v ? 100 : 0; })(),
   };
 }
 
@@ -705,6 +750,12 @@ function criterionValueText(key, parcel, s, short = false) {
       return depth == null ? "no data" : short ? `${depth} ft` : `${depth} ft at ${site.groundwater.wells[0].distanceMiles} mi`;
     }
     case "hazards": return site.hazards && site.hazards.overallLevel >= 0 ? site.hazards.overall : "no data";
+    case "agValuation": {
+      const v = openSpaceValuation(parcel);
+      if (v.value === null) return short ? "unknown" : "unknown: tick it on the parcel";
+      if (short) return v.value ? "Yes" : "No";
+      return v.value ? (v.from === "appraisal" ? "Likely (Texas land category D1)" : "Yes (you entered)") : "No (you entered)";
+    }
     case "hospital":
     case "grocery": {
       const m = placeDriveMinutes(site, key, s);

@@ -56,7 +56,7 @@ test("recommendedRanges: one use gives its own values; two uses give the stricte
 
 test("suggestedCriteria lists each criterion once, in the default order", () => {
   const s = plain(app.get("suggestedCriteria")({ garden: true, livestock: true }));
-  assert.deepEqual(s, ["slope", "rain", "flood", "groundwater"]);
+  assert.deepEqual(s, ["slope", "rain", "flood", "groundwater", "agValuation"]);
   assert.deepEqual(plain(app.get("suggestedCriteria")({})), []);
   assert.equal(app.get("usesText")({ homestead: true, farm: true, garden: true }), "homestead, farm (crops or hay) and small vegetable garden");
   assert.equal(app.get("usesText")({ residential: true }), "residential home");

@@ -89,6 +89,13 @@
         <label>Longitude <input id="f-lon" inputmode="decimal" placeholder="-98.40000"></label>
         <label>Acres <input id="f-acres" inputmode="decimal"></label>
         <label>Asking price (USD) <input id="f-price" inputmode="decimal"></label>
+        <fieldset class="wide exemptions">
+          <legend>Tax exemptions or special valuations, from the listing or the appraisal district (leave empty if you do not know)</legend>
+          <label class="check"><input type="checkbox" id="f-ex-ag"> Ag (open-space) valuation</label>
+          <label class="check"><input type="checkbox" id="f-ex-wildlife"> Wildlife management valuation</label>
+          <label class="check"><input type="checkbox" id="f-ex-homestead"> Homestead exemption</label>
+          <label class="check"><input type="checkbox" id="f-ex-none"> None of these (I checked)</label>
+        </fieldset>
       </div>
       <div><button class="btn" id="btn-pick" type="button">Pick location on the map</button></div>
       <p class="hint" id="edit-hint" hidden>Changing the address only changes its label. To move the parcel, change the latitude and longitude or pick a new spot on the map; its data is then looked up again. Changing the name, acres or price keeps the data and updates the score and cost.</p>

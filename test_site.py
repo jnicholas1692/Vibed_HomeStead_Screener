@@ -193,8 +193,8 @@ def fake_service(url, post_body, mode):
         ring = [[LON - 0.002, LAT - 0.002], [LON + 0.002, LAT - 0.002], [LON + 0.002, LAT + 0.002], [LON - 0.002, LAT + 0.002], [LON - 0.002, LAT - 0.002]]
         return json_reply({"results": [{"geometry": {"rings": [ring], "spatialReference": {"wkid": 4326}}, **feature({
             "PROP_ID": "R123", "LEGAL_AREA": "10.5", "LGL_AREA_UNIT": "Null", "GIS_AREA": "10.4",
-            "LAND_VALUE": "21000", "IMP_VALUE": "0", "MKT_VALUE": "21000", "COUNTY": "Blanco",
-            "TAX_YEAR": "2025", "STAT_LAND_USE": "Null", "LOC_LAND_USE": "Ranch land",
+            "LAND_VALUE": "21000", "IMP_VALUE": "50000", "MKT_VALUE": "71000", "COUNTY": "Blanco",
+            "TAX_YEAR": "2025", "STAT_LAND_USE": "Null", "LOC_LAND_USE": "Ranch land", "YEAR_BUILT": "1998",
             "OWNER_NAME": SECRETS[0], "MAIL_ADDR": SECRETS[1], "SITUS_ADDR": SECRETS[2]})}]})
     if "GroundWaterConservationDistricts" in url:
         return json_reply({"features": [feature({"DistrictName": "Blanco-Pedernales GCD"})]})
@@ -344,10 +344,10 @@ def test_settings(b):
     check("Settings opens", page.is_visible("#dlg-criteria"))
     check("six criteria start ticked, each counting the same", "6 ticked, each counts 17%" in page.text_content("#c-criteria-count"))
     rows = page.eval_on_selector_all("#c-criteria-list li", "els => els.map((li) => li.dataset.key)")
-    check("all eleven criteria are listed", len(rows) == 11, str(rows))
+    check("all twelve criteria are listed", len(rows) == 12 and rows[-1] == "agValuation", str(rows))
     no_tip = page.evaluate("() => [...document.querySelectorAll('#c-criteria-list .order-name')].filter((n) => !n.querySelector('.help')).length")
     check("every criterion name has a hover explanation", no_tip == 0)
-    check("every criterion has a dealbreaker switch", page.locator("#c-criteria-list input[data-deal]").count() == 11)
+    check("every criterion has a dealbreaker switch", page.locator("#c-criteria-list input[data-deal]").count() == 12)
     help_missing = page.evaluate("""() => [...document.querySelectorAll('#criteria-fields input[data-path]')]
         .filter((input) => !input.closest('label').querySelector('.help')).map((input) => input.dataset.path)""")
     check("every number box in Settings has a hover explanation", help_missing == [], str(help_missing))
@@ -538,6 +538,69 @@ def test_road_backup_and_refresh(b):
     check("Refresh all asks every service again", {"hazards.fema.gov", "epqs.nationalmap.gov", "feature.geographic.texas.gov"} <= asked, str(sorted(asked)))
     check("Refresh all clears the filled-in note", "missing data filled in" not in page.text_content("#detail"))
     close_dialog(page, "dlg-detail")
+
+
+def test_texas_tax_and_exemptions(b):
+    section("Texas acres, tax values and exemptions")
+    page = b.page
+    # Add a parcel with the acres left blank and two exemptions ticked.
+    page.click("#btn-add")
+    page.fill("#f-name", "Blanco no acres")
+    page.fill("#f-lat", str(LAT))
+    page.fill("#f-lon", str(LON))
+    page.fill("#f-price", "120000")
+    check("the exemption boxes have hover help", page.locator(".exemptions .help").count() == 4)
+    page.check("#f-ex-ag")
+    page.check("#f-ex-homestead")
+    page.check("#f-ex-none")
+    check("ticking None of these clears the others", not page.is_checked("#f-ex-ag") and not page.is_checked("#f-ex-homestead"))
+    page.check("#f-ex-ag")
+    check("ticking an exemption clears None of these", not page.is_checked("#f-ex-none"))
+    page.check("#f-ex-homestead")
+    page.click("#btn-save")
+    wait_for_report(page)
+    detail = page.text_content("#detail")
+    check("blank acres are filled in from the appraisal record", "10.5 acres" in page.text_content("#detail .dlg-head"), page.text_content("#detail .dlg-head"))
+    check("the report says those acres came from the appraisal district", "used as the parcel's acres" in detail)
+    check("the exemptions you ticked are listed", "Ag (open-space) valuation, homestead exemption" in detail)
+    link = page.locator('#detail a[href$="/county-directory/blanco.php"]')
+    check("there is a link to the county's appraisal district", link.count() == 1)
+    check("the link names the property ID to ask about", "property ID R123" in detail)
+    check("the improvement value is shown", "Appraised improvement value" in detail)
+    check("the year built is shown", re.search(r"Year built\s*1998", detail) is not None)
+    check("an estimated yearly tax before exemptions is shown", re.search(r"Estimated yearly tax before exemptions\s*\$710", detail) is not None,
+          (re.search(r"Estimated yearly tax before exemptions[^%]*%", detail) or [""])[0])
+    no_tip = page.evaluate("() => [...document.querySelectorAll('#detail .kv > div:nth-child(odd)')].filter((d) => !d.querySelector('.help')).map((d) => d.textContent.trim())")
+    check("every new label is explained", no_tip == [], str(no_tip))
+    check("nothing about the owner reached the page", not any(s in page.content() for s in SECRETS))
+    close_dialog(page, "dlg-detail")
+    check("the list marks appraisal acres", "10.5 acres (appraisal)" in page.text_content("#list"))
+
+    # Edit keeps the ticks, and typing your own acres makes them yours.
+    page.locator("#list .row-name", has_text="Blanco no acres").click()
+    page.click("#detail [data-edit]")
+    check("Edit shows the exemptions you ticked", page.is_checked("#f-ex-ag") and page.is_checked("#f-ex-homestead") and not page.is_checked("#f-ex-wildlife"))
+    check("Edit shows the filled-in acres", page.input_value("#f-acres") == "10.5")
+    page.fill("#f-acres", "11")
+    page.click("#btn-save")
+    page.wait_for_selector("#dlg-detail[open]")
+    check("acres you type replace the appraisal acres", "11 acres" in page.text_content("#detail .dlg-head") and "used as the parcel's acres" not in page.text_content("#detail"))
+    close_dialog(page, "dlg-detail")
+
+    # The ag or wildlife criterion scores from your answer.
+    open_settings(page, "scoring")
+    page.check("#c-criteria-list input[data-crit=agValuation]")
+    save_settings(page)
+    page.locator("#list .row-name", has_text="Blanco no acres").click()
+    page.wait_for_selector("#dlg-detail[open]")
+    summary = page.text_content(".summary-table")
+    check("the ag criterion appears in the report summary", "Ag or wildlife valuation" in summary and "Yes (you entered)" in summary)
+    # Delete this parcel (two clicks) so the tests after this one see the list they expect.
+    page.click("#detail [data-delete]")
+    page.click("#detail [data-delete].armed")
+    check("the extra parcel is deleted", "Blanco no acres" not in page.text_content("#list"))
+    open_settings(page, "scoring")
+    page.click("#btn-reset-criteria")
 
 
 def test_criteria_order_shows(b):
@@ -821,7 +884,7 @@ def main():
             # These run in order on one browser profile: settings first, so the Census key is set
             # before the parcel is looked up.
             for test in [test_page_and_footer, test_static_hover_help, test_settings, test_sliders_and_uses, test_criteria, test_add_errors,
-                         test_address_suggestions, test_full_report, test_road_backup_and_refresh,
+                         test_address_suggestions, test_full_report, test_road_backup_and_refresh, test_texas_tax_and_exemptions,
                          test_criteria_order_shows, test_export,
                          test_demo_list_compare, test_clear_data]:
                 try:

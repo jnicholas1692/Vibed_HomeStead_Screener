@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v2.5.0.
+> Last updated for v2.6.0.
 
 ## 1. Problem
 
@@ -98,6 +98,9 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R61 | Refresh only what is missing | Refresh data keeps what is there and asks again only for lookups that failed last time, values never looked up (newer features), failed pieces of More local conditions and Texas details, drive times without a route, and a tax rate or county profile that waited for a Census key that is now set; a service that answered "nothing here" is not asked again; if nothing is missing no service is asked and the page says so; Refresh all looks everything up again; the report shows when missing data was filled in | `feature/road-fallbacks-and-smart-refresh` |
 | R62 | Two-ended sliders | Each of the eight scoring ranges (price, slope, rain, airport drive, internet, groundwater depth, hospital drive, grocery drive) is one slider with two thumbs above its two number boxes; moving a thumb changes its box and typing in a box moves its thumb; the thumbs cannot cross (the one being moved pushes the other one step along); a typed number past the slider's end stretches the slider; the track is green where a value scores 100 and red where it scores 0; each thumb has a screen-reader label and works with the arrow keys; Settings has no sideways scrolling, also at phone width | `feature/range-sliders-and-land-uses` |
 | R63 | Recommended values by land use | Settings > Scoring asks what the land is for (homestead, farm, small vegetable garden, backyard livestock, residential home) with tick boxes saved in the browser; ticked uses show a recommended range with its unit under each slider they have a view on ("No recommendation" for the rest, including price and airport drive), and the criteria worth ticking; Use recommended values moves the sliders and Tick suggested criteria ticks those criteria, and nothing is saved until Save settings; with several uses the stricter value of each range wins | `feature/range-sliders-and-land-uses` |
+| R64 | Texas acres and tax values | When a Texas parcel's acres are blank, the appraisal record's acres fill them, marked "(appraisal)" in the list and "used as the parcel's acres" in the report; typing your own acres replaces them; the report adds the appraised improvement value (when above zero), the year built, and an estimated yearly tax before exemptions (total value times the county's typical rate, or your own rate); the owner fields are still never kept | `feature/texas-tax-and-exemptions` |
+| R65 | Tax exemptions | The Add and Edit window has tick boxes for ag (open-space) valuation, wildlife management valuation, homestead exemption, and "None of these (I checked)"; none ticked means unknown; None and the others clear each other; the report lists them with "(you entered)", or "Ag or wildlife valuation likely" when a Texas record's state land category is D1; Texas parcels link to the county's page in the Comptroller's appraisal district directory with the property ID; the compare table shows them | `feature/texas-tax-and-exemptions` |
+| R66 | Ag or wildlife valuation criterion | A twelfth criterion, unticked by default: 100 for a ticked ag or wildlife valuation (or a D1 record), 0 for "None of these", no data otherwise; its dealbreaker fires only on a confirmed no; suggested for homestead, farm and backyard livestock | `feature/texas-tax-and-exemptions` |
 
 ## 5. Scoring rules
 
@@ -134,7 +137,7 @@ Default: septic, airport, price, internet, slope and rain are ticked (the six fa
 | Public and protected land | USGS PAD-US (Public_Access layer) | Unknown-access areas left out; "open" does not mean any particular use is allowed |
 | County property tax rate | Census American Community Survey 5-year, tables B25103 and B25077 | Median for homes, so vacant land and farm exemptions can differ; needs a free key |
 | Groundwater | USGS Water Data API (field measurements) | A monitoring well is not your lot; may tap a different aquifer than a household well |
-| Texas parcel record | Texas Geographic Information Office land parcels (identify request) | Appraisal-district data, not a survey; owner fields are discarded |
+| Texas parcel record | Texas Geographic Information Office land parcels (identify request) | Appraisal-district data, not a survey; owner fields are discarded; no exemption or taxable-value fields, and the state land category was empty in every county checked on 2026-10-31 (Blanco, Kendall, Bell, Milam) |
 | Texas wells and districts | TWDB groundwater database, groundwater conservation districts, TEA school districts | Reported wells near the point, not your lot |
 | Texas oil, gas and pipelines | Railroad Commission of Texas GIS | Pipelines within half a mile, wells within a mile; mineral rights are not shown |
 | Edwards Aquifer | Texas Commission on Environmental Quality recharge zone layer | Screening only |
@@ -168,8 +171,8 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 
 ## 10. Testing
 
-- 170 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
-- 170 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
+- 177 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
+- 189 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
 - Live checks against real services are manual (see the tutorial).
 
 ## 11. What I would do next

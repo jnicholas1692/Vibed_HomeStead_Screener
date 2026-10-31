@@ -1541,6 +1541,10 @@ function summarizeTxParcel(features) {
     landUse: field(a, "loc_land_use") || field(a, "stat_land_use"),
     taxYear: field(a, "tax_year"),
     county: field(a, "county"),
+    yearBuilt: (() => { const y = Number(field(a, "year_built")); return Number.isInteger(y) && y > 1700 && y <= new Date().getFullYear() + 1 ? y : null; })(),
+    // The state's property category. D1 is "qualified open-space land": land taxed on its farm or wildlife use.
+    stateCategory: field(a, "stat_land_use"),
+    openSpaceLikely: /^D1\b/i.test(String(field(a, "stat_land_use") || "")),
     outline: parcelOutline(features[0].geometry),
   };
 }
@@ -1722,6 +1726,15 @@ function mergePieces(earlier, fresh) {
   return { ...earlier, ...fresh, failed: fresh.failed };
 }
 
+// When you left the acres blank and the Texas appraisal record has them, use those, and remember where they came from.
+function fillAcresFromAppraisal(parcel) {
+  const record = parcel.site && parcel.site.texas && parcel.site.texas.parcel;
+  if ((parcel.acres === null || parcel.acres === undefined) && record && record.appraisalAcres != null) {
+    parcel.acres = record.appraisalAcres;
+    parcel.acresSource = "appraisal";
+  }
+}
+
 // Runs the planned lookups at once. One failure never stops the others; failures are listed on the parcel.
 // "all" starts from nothing; "missing" keeps everything already found and only fills the gaps.
 async function lookupAll(parcel, onProgress, mode = "all", plan = planLookups(parcel, mode, settings)) {
@@ -1784,6 +1797,7 @@ async function lookupAll(parcel, onProgress, mode = "all", plan = planLookups(pa
       fail("Texas", error.message);
     }
   }
+  fillAcresFromAppraisal(parcel);
   parcel.errors = errors;
   parcel.failedSteps = failedNow;
   if (mode === "all") { parcel.fetchedAt = new Date().toISOString(); delete parcel.filledAt; }

@@ -2,11 +2,15 @@
 
 // The version shown in the page footer and the day it was released. Change both with every release,
 // along with "version" in package.json and the README version history (tests/version.test.js checks they agree).
-const APP_VERSION = "2.5.0";
+const APP_VERSION = "2.6.0";
 const APP_UPDATED = "2026-10-31";   // year-month-day
 
 // Where sources.js keeps which map server worked last and which are resting (Clear data erases it too).
 const OVERPASS_MEMORY_KEY = "homestead-screener.overpass.v1";
+
+// The Texas Comptroller's directory of county appraisal districts (who to ask about exemptions and ag valuation).
+// Each county has its own page named after it in lowercase letters: Fort Bend is fortbend.php (checked for all 254).
+const TX_CAD_DIRECTORY_URL = "https://comptroller.texas.gov/taxes/property-tax/county-directory/";
 
 // Where to sign up for the free Census API key used for the county tax rate and county profile.
 const CENSUS_KEY_SIGNUP_URL = "https://api.census.gov/data/key_signup.html";
@@ -19,13 +23,13 @@ const DEFAULT_SETTINGS = {
   // and `order` is the order they are shown in (the report summary, the list columns and the compare table).
   // Keys are those of FACTOR_LABELS. The last five are new in v2.3.0 and start unticked.
   criteria: {
-    order: ["septic", "airport", "price", "internet", "slope", "rain", "flood", "groundwater", "hazards", "hospital", "grocery"],
+    order: ["septic", "airport", "price", "internet", "slope", "rain", "flood", "groundwater", "hazards", "hospital", "grocery", "agValuation"],
     on: { septic: true, airport: true, price: true, internet: true, slope: true, rain: true,
-      flood: false, groundwater: false, hazards: false, hospital: false, grocery: false },
+      flood: false, groundwater: false, hazards: false, hospital: false, grocery: false, agValuation: false },
   },
   // Which criteria rule a parcel out completely when they hit their worst end. A switch works whether or not the criterion is ticked.
   dealbreakers: { flood: true, septic: false, slope: false, rain: false, airport: true, price: false, internet: false,
-    groundwater: false, hazards: false, hospital: false, grocery: false },
+    groundwater: false, hazards: false, hospital: false, grocery: false, agValuation: false },
   priceTarget: 100000, priceMax: 150000,        // full marks at or below target, zero at or above max
   slopeIdeal: 5, slopeMax: 20,                   // slope in percent
   rainFull: 35, rainZero: 15,                    // average inches of rain per year
@@ -141,7 +145,7 @@ const FACTOR_LABELS = {
   septic: "Septic suitability", slope: "Slope", rain: "Rainfall",
   airport: "Airport distance", price: "Price", internet: "Internet",
   flood: "Flood risk", groundwater: "Groundwater depth", hazards: "Natural hazard rating",
-  hospital: "Hospital drive", grocery: "Grocery drive",
+  hospital: "Hospital drive", grocery: "Grocery drive", agValuation: "Ag or wildlife valuation",
 };
 
 // Cleans up saved criteria: unknown or repeated keys are dropped, any criterion the saved order is missing
@@ -430,6 +434,10 @@ const GLOSSARY = {
   "Social vulnerability": { source: "hazards", text: "FEMA's rating of how hard a disaster tends to hit the people in this census tract (income, age, housing and similar factors), compared with the rest of the US. Higher means a harder recovery." },
   "Community resilience": { source: "hazards", text: "FEMA's rating of how well the community can prepare for, absorb and recover from a disaster, compared with the rest of the US. Higher is better." },
   "FEMA disaster declarations (10 years)": { source: "femaDisasters", text: "Federal disaster and emergency declarations that named this county in the last 10 years, with the kinds of events and the latest one. It describes the whole county, not your lot, and a declaration depends on damage to people and property, not just the weather." },
+  "Tax exemptions": { text: "Exemptions and special valuations you ticked when adding or editing the parcel, from the listing or the appraisal district. The statewide data has none of these, so the app cannot look them up. A homestead exemption belongs to the owner who lives there and ends when the land is sold; ag and wildlife valuations can continue for a new owner who keeps the qualifying use, but must be applied for again." },
+  "Year built": { source: "txParcel", text: "The year the main building was built, from the appraisal district. Blank for land with no building or when the district does not report it." },
+  "Appraised improvement value": { source: "txParcel", text: "The appraisal district's value for buildings and other improvements, for the tax year shown. Part of the total value." },
+  "Estimated yearly tax before exemptions": { source: "txParcel", text: "The appraised total value times a tax rate: the county's typical rate from the Census when known (and turned on in Settings), otherwise your own rate. It ignores exemptions, ag or wildlife valuation and caps, so a real bill can be much lower. The county tax office has the real figure." },
   "Parcel outline": { source: "txParcel", text: "The parcel's boundary from the appraisal district's map, drawn on the map as a thin line. Appraisal maps are for tax, not a survey, so lines can be off by many feet." },
   // ---- rough cost (every number comes from the placeholder rates in Settings > Costs and loans) ----
   "Loan payment": { text: "Monthly principal and interest on a loan for the land itself, using your down payment, rate and years from Settings. 0 years means the land is treated as paid in cash." },
@@ -458,6 +466,7 @@ const FACTOR_TIPS = {
   "Groundwater depth": (s) => `Depth to water at the nearest USGS monitoring well. Scores 100 at ${s.groundwaterFullFt} ft or shallower and 0 at ${s.groundwaterZeroFt} ft or deeper, evenly in between. A monitoring well is not your lot, so treat this as a hint about drilling depth.`,
   "Natural hazard rating": () => "FEMA's overall National Risk Index rating for the census tract. Very Low scores 100, Relatively Low 75, Relatively Moderate 50, Relatively High 25 and Very High 0.",
   "Hospital drive": (s) => `Drive time to the nearest hospital that is not marked as having no emergency room, from OpenStreetMap. Scores 100 at ${s.hospitalFullMin} minutes or less and 0 at ${s.hospitalMaxMin} minutes or more.`,
+  "Ag or wildlife valuation": () => "Whether the land is taxed on its farm or wildlife use (in Texas, open-space or \"1-d-1\" valuation) instead of its market value, which can cut the tax bill a great deal. Yes scores 100 and a confirmed no scores 0. It comes from what you tick on the parcel (from the listing or the appraisal district), or, when you have not said, from a Texas appraisal record in land category D1. The valuation only continues if the land stays in qualifying use, and changing the use can bring back taxes for earlier years.",
   "Grocery drive": (s) => `Drive time to the nearest supermarket, from OpenStreetMap. Scores 100 at ${s.groceryFullMin} minutes or less and 0 at ${s.groceryMaxMin} minutes or more. Rural stores are often missing from the map, so check.`,
 };
 
@@ -488,13 +497,13 @@ const LAND_USES = {
     label: "Homestead",
     tip: "A home plus food you grow or raise yourself: a garden, some animals, a well and a septic system.",
     ranges: { slope: [5, 20], rain: [30, 15], groundwater: [100, 400], internet: [50, 5], hospital: [30, 60], grocery: [20, 45] },
-    criteria: ["septic", "slope", "rain", "groundwater", "flood", "price", "hospital", "grocery"],
+    criteria: ["septic", "slope", "rain", "groundwater", "flood", "price", "hospital", "grocery", "agValuation"],
   },
   farm: {
     label: "Farm (crops or hay)",
     tip: "Growing crops or hay on most of the land. Flat ground erodes less and is easier to work with machines, and more rain (or a good well for irrigation) means bigger harvests.",
     ranges: { slope: [3, 12], rain: [35, 18], groundwater: [50, 300], hospital: [45, 90], grocery: [30, 60] },
-    criteria: ["slope", "rain", "groundwater", "flood", "price", "hazards"],
+    criteria: ["slope", "rain", "groundwater", "flood", "price", "hazards", "agValuation"],
   },
   garden: {
     label: "Small vegetable garden",
@@ -506,7 +515,7 @@ const LAND_USES = {
     label: "Backyard livestock",
     tip: "Chickens, goats, a few sheep or pigs. They cope with slopes better than crops do, but need dependable water and some pasture.",
     ranges: { slope: [10, 30], rain: [30, 15], groundwater: [100, 400], hospital: [30, 60] },
-    criteria: ["groundwater", "rain", "slope", "flood"],
+    criteria: ["groundwater", "rain", "slope", "flood", "agValuation"],
   },
   residential: {
     label: "Residential home",
@@ -572,6 +581,10 @@ const UI_TIPS = {
   "f-price": "Asking price in US dollars. It feeds the Price score and the cost estimates.",
   "btn-pick": "Close this window and click the map to set the location.",
   "btn-reset-criteria": "Put every setting back to its starting value right away and close Settings. Your Census API key is kept.",
+  "f-ex-ag": "Tick if the listing or the appraisal district says the land has agricultural (open-space) valuation, often called an ag exemption.",
+  "f-ex-wildlife": "Tick if the land is valued for wildlife management, a kind of open-space valuation for land that was in ag use.",
+  "f-ex-homestead": "Tick if the current owner has a homestead exemption. It ends when the land is sold; you would apply for your own.",
+  "f-ex-none": "Tick if you checked and the land has none of these. Leave every box empty if you do not know yet.",
   "c-apply-recommended": "Move every slider to the recommended range for the uses you ticked. Price and airport drive are left as they are. Nothing is saved until you press Save settings.",
   "c-tick-suggested": "Tick the criteria that matter for the uses you ticked, and leave the rest as they are. Nothing is saved until you press Save settings.",
   "tab-scoring": "Spend your 10 points and set dealbreakers and the ranges that decide each score.",
