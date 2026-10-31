@@ -1403,9 +1403,18 @@ async function lookupCrime(stateAbbr, county, key) {
   }
   const sheriff = findSheriff(fbiAgencyLists[stateAbbr], county);
   if (!sheriff) return { agency: null };
-  const year = new Date().getFullYear() - 1;   // the last full calendar year
-  const ask = (code) => getJSON(`${FBI_CDE_URL}summarized/agency/${sheriff.ori}/${code}?from=01-${year}&to=12-${year}&API_KEY=${encodeURIComponent(key)}`, {}, 40000);
-  const [violent, property] = await Promise.all([ask("V"), ask("P")]);
+  const ask = (code, year) => getJSON(`${FBI_CDE_URL}summarized/agency/${sheriff.ori}/${code}?from=01-${year}&to=12-${year}&API_KEY=${encodeURIComponent(key)}`, {}, 40000);
+  // The last full calendar year first. On 2026-10-31 the FBI's service failed (HTTP 503) for all of 2025 but answered
+  // for 2024, so when a year fails on the FBI's side (a 5xx error), the year before is tried once.
+  let year = new Date().getFullYear() - 1;
+  let violent, property;
+  try {
+    [violent, property] = await Promise.all([ask("V", year), ask("P", year)]);
+  } catch (error) {
+    if (!/^HTTP 5\d\d$/.test(error.message)) throw error;
+    year -= 1;
+    [violent, property] = await Promise.all([ask("V", year), ask("P", year)]);
+  }
   const stateName = sheriff.state_name || "";
   return {
     agency: sheriff.agency_name, ori: sheriff.ori, year,

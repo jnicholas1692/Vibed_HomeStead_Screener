@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v2.6.1.
+> Last updated for v2.7.0.
 
 ## 1. Problem
 
@@ -102,6 +102,8 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R65 | Tax exemptions | The Add and Edit window has tick boxes for ag (open-space) valuation, wildlife management valuation, homestead exemption, and "None of these (I checked)"; none ticked means unknown; None and the others clear each other; the report lists them with "(you entered)", or "Ag or wildlife valuation likely" when a Texas record's state land category is D1; Texas parcels link to the county's page in the Comptroller's appraisal district directory with the property ID; the compare table shows them | `feature/texas-tax-and-exemptions` |
 | R66 | Ag or wildlife valuation criterion | A twelfth criterion, unticked by default: 100 for a ticked ag or wildlife valuation (or a D1 record), 0 for "None of these", no data otherwise; its dealbreaker fires only on a confirmed no; suggested for homestead, farm and backyard livestock | `feature/texas-tax-and-exemptions` |
 | R67 | Hover help on touch screens | After a touch, the pretend mouse and focus events a phone sends around a tap neither close nor open tips; tapping dotted words opens their tip (again if tapped twice) and a tap elsewhere, Escape or scrolling closes it; dotted words inside a label do not pass the tap to the box or tick box (tapping the box itself still works); with a mouse nothing changes, so clicking a tick box's words still ticks it; checked on a touch phone emulation for every kind of dotted label in Settings | `fix/mobile-tips-in-labels` |
+| R68 | People and community | A People and community section (in a new People and safety category) shows population, median age, share under 18, median household income, share below the poverty line, share with a bachelor's degree or more, share working from home, share of households with broadband and median home value, for the census tract (its ID comes with the county lookup) next to the whole county, from Census Reporter without a key; it names the survey release; it replaces the old county profile that needed a Census key | `feature/people-and-crime` |
+| R69 | Crime | A Crime section shows the violent and property offenses the county sheriff reported to the FBI for the last full year (the year before when the FBI's service fails for it), the rate per 100,000 people served, and the Texas and US rates; it needs a free api.data.gov key saved in Settings > Costs and loans (with a sign-up link), sent only to api.usa.gov; without a key nothing is asked and the section says how to get one; a refused key says so; fewer than 12 reported months gets a notice; Refresh data asks for it once a key is added; Reset to defaults keeps the key | `feature/people-and-crime` |
 
 ## 5. Scoring rules
 
@@ -147,7 +149,8 @@ Default: septic, airport, price, internet, slope and rain are ticked (the six fa
 | Wind and humidity | NASA POWER annual climatology | Grid cells about 50 km wide |
 | Regulated facilities | EPA ECHO | Counts facilities within 2 miles; not a pollution reading |
 | Disaster declarations | OpenFEMA Disaster Declarations Summaries (checked from the live site: answers browser requests) | County level; a declaration depends on damage, not just weather |
-| County profile | Census ACS 5-year, county | The Census blocks browser requests without a free key, so this and the tax rate may ask for one |
+| People and community | Census Reporter (ACS 5-year: tables B01003, B01002, B09001, B19013, B17001, B15003, B08301, B28002, B25077), checked from the live site on 2026-10-31 (ACS 2024 5-year) | Survey estimates with wide margins of error in small rural tracts; a third-party republisher of Census data |
+| Crime | FBI Crime Data Explorer (agency list and monthly summarized offenses), checked from the live site on 2026-10-31 | Needs a free key; the sheriff covers the county outside city limits; small populations make rates jumpy; on 2026-10-31 the service failed for 2025 and answered for 2024 |
 
 ## 7. Architecture
 
@@ -172,8 +175,8 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 
 ## 10. Testing
 
-- 177 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
-- 213 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
+- 183 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
+- 229 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
 - Live checks against real services are manual (see the tutorial).
 
 ## 11. What I would do next

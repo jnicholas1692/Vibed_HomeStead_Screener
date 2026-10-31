@@ -45,6 +45,9 @@ SECRETS = ["SECRET OWNER", "1 PRIVATE RD", "99 SECRET LANE"]
 # A made-up Census key. The tests check it is only ever sent to the Census.
 FAKE_CENSUS_KEY = "TESTKEY0123456789"
 
+# A made-up api.data.gov key for the FBI crime figures. The tests check it is only ever sent to api.usa.gov.
+FAKE_CRIME_KEY = "CRIMEKEY0123456789"
+
 # Every outside host the app is allowed to talk to. A request to anything else fails a check.
 ALLOWED_HOSTS = {
     "unpkg.com", "tile.openstreetmap.org",
@@ -55,7 +58,7 @@ ALLOWED_HOSTS = {
     "api.census.gov", "fwspublicservices.wim.usgs.gov", "rdgdwe.sc.egov.usda.gov",
     "api.waterdata.usgs.gov", "api.weather.gov", "power.larc.nasa.gov", "echodata.epa.gov",
     "feature.geographic.texas.gov", "services.twdb.texas.gov", "gis.rrc.texas.gov", "www.fema.gov",
-    "tigerweb.geo.census.gov",
+    "tigerweb.geo.census.gov", "api.censusreporter.org", "api.usa.gov",
 }
 
 # The smallest valid PNG (one clear pixel), handed back for map tiles.
@@ -154,7 +157,8 @@ def fake_service(url, post_body, mode):
     if "geocoding.geo.census.gov/geocoder/geographies" in url:
         return jsonp_reply(url, {"result": {"geographies": {
             "Counties": [{"NAME": "Blanco County", "STATE": "48", "COUNTY": "031"}],
-            "States": [{"STUSAB": "TX", "STATE": "48"}]}}})
+            "States": [{"STUSAB": "TX", "STATE": "48"}],
+            "Census Tracts": [{"GEOID": "48031950101", "NAME": "Census Tract 9501.01"}]}}})
     if "geocoding.geo.census.gov/geocoder/locations" in url:
         address = parse_qs(urlparse(url).query).get("address", [""])[0]
         matches = [] if "nowhere" in address.lower() else [
@@ -165,6 +169,27 @@ def fake_service(url, post_body, mode):
             "geometry": {"coordinates": [LON, LAT]},
             "properties": {"countrycode": "US", "housenumber": "100", "street": "Main Street",
                            "city": "Blanco", "state": "Texas", "postcode": "78606"}}]})
+    if host == "api.censusreporter.org":
+        # Census survey tables for the tract and the county (a few of the real Blanco County figures).
+        def place(pop, income):
+            return {"B01003": {"estimate": {"B01003001": pop}}, "B19013": {"estimate": {"B19013001": income}},
+                    "B17001": {"estimate": {"B17001001": pop, "B17001002": pop // 10}}}
+        return json_reply({"release": {"name": "ACS 2024 5-year", "years": "2020-2024"},
+                           "data": {"14000US48031950101": place(2613, 63500), "05000US48031": place(12446, 92425)}})
+    if host == "api.usa.gov" and "/agency/byStateAbbr/TX" in url:
+        return json_reply({"BLANCO": [
+            {"ori": "TX0160100", "agency_name": "Blanco Police Department", "agency_type_name": "City", "state_name": "Texas"},
+            {"ori": "TX0160000", "agency_name": "Blanco County Sheriff's Office", "agency_type_name": "County", "state_name": "Texas"}]})
+    if host == "api.usa.gov" and "/summarized/agency/TX0160000/" in url:
+        # Twelve months: 1 violent or 3 property offenses a month, for 9,520 people.
+        per_month = 1 if "/V?" in url else 3
+        months = [f"{m:02d}-{int(parse_qs(urlparse(url).query)['from'][0][3:])}" for m in range(1, 13)]
+        name = "Blanco County Sheriff's Office"
+        return json_reply({"offenses": {
+            "actuals": {f"{name} Offenses": {m: per_month for m in months}},
+            "rates": {"Texas Offenses": {m: 30 if per_month == 1 else 170 for m in months},
+                      "United States Offenses": {m: 28 if per_month == 1 else 140 for m in months}}},
+            "populations": {"population": {name: {m: 9520 for m in months}}}})
     if host == "tigerweb.geo.census.gov":
         # The Census TIGER roads, the first backup when the OpenStreetMap servers (all down in this test) fail.
         road = {"attributes": {"NAME": "E Main St", "MTFCC": "S1200"},
@@ -539,6 +564,48 @@ def test_road_backup_and_refresh(b):
     asked = {urlparse(u).hostname for u in b.requests[seen:]}
     check("Refresh all asks every service again", {"hazards.fema.gov", "epqs.nationalmap.gov", "feature.geographic.texas.gov"} <= asked, str(sorted(asked)))
     check("Refresh all clears the filled-in note", "missing data filled in" not in page.text_content("#detail"))
+    close_dialog(page, "dlg-detail")
+
+
+def test_people_and_crime(b):
+    section("People and community, and crime")
+    page = b.page
+    page.locator("#list .row-name", has_text="Blanco test 10 acres").click()
+    page.wait_for_selector("#dlg-detail[open]")
+    detail = page.text_content("#detail")
+    check("the People and safety category is shown", page.locator("details.rgroup[data-group=community]").count() == 1)
+    check("tract and county populations are shown side by side", "2,613" in detail and "12,446" in detail)
+    check("tract and county incomes are shown", "$63,500" in detail and "$92,425" in detail)
+    check("the survey release is named", "ACS 2024 5-year" in detail)
+    check("the old Census-key county profile is gone", "County population" not in detail and "needs a free Census key in Settings" not in detail)
+    check("crime asks for a free key first", "The FBI's crime figures need a free key" in detail)
+    check("no request went to the FBI without a key", not any(urlparse(u).hostname == "api.usa.gov" for u in b.requests))
+    close_dialog(page, "dlg-detail")
+
+    # Add the crime key in Settings, then Refresh data: only the crime figures are asked for.
+    open_settings(page, "costs")
+    check("Settings has a crime data key box", page.is_visible("#c-crime-key"))
+    link = page.locator("#c-crime-key-link")
+    check("Settings links to the api.data.gov sign-up page", link.get_attribute("href") == "https://api.data.gov/signup/" and link.get_attribute("target") == "_blank")
+    page.fill("#c-crime-key", FAKE_CRIME_KEY)
+    save_settings(page)
+    page.locator("#list .row-name", has_text="Blanco test 10 acres").click()
+    page.wait_for_selector("#dlg-detail[open]")
+    seen = len(b.requests)
+    page.click("[data-refresh][data-mode=missing]")
+    wait_for_report(page)
+    asked = {urlparse(u).hostname for u in b.requests[seen:]}
+    check("Refresh data asks the FBI once a key is set", "api.usa.gov" in asked, str(sorted(asked)))
+    check("Refresh data does not ask Census Reporter again", "api.censusreporter.org" not in asked)
+    detail = page.text_content("#detail")
+    check("the county sheriff is named", "Blanco County Sheriff's Office" in detail)
+    check("violent crime: 12 offenses, 126.1 per 100,000, with Texas and US", re.search(r"Violent crime\s*12\s*126\.1\s*360\s*336", detail) is not None,
+          (re.search(r"Violent crime[\s\d,.]*", detail) or [""])[0])
+    check("property crime: 36 offenses, 378.2 per 100,000", re.search(r"Property crime\s*36\s*378\.2\s*2,040\s*1,680", detail) is not None)
+    key_hosts = sorted({urlparse(u).hostname for u in b.requests if FAKE_CRIME_KEY in u})
+    check("the crime key was sent only to api.usa.gov", key_hosts == ["api.usa.gov"], str(key_hosts))
+    no_tip = page.evaluate("() => [...document.querySelectorAll('#detail .kv > div:nth-child(odd), #detail td:first-child')].filter((d) => d.textContent.trim() && !d.querySelector('.help') && d.closest('details[data-group=community]')).map((d) => d.textContent.trim())")
+    check("every label in the new sections is explained", no_tip == [], str(no_tip))
     close_dialog(page, "dlg-detail")
 
 
@@ -923,7 +990,7 @@ def main():
             # These run in order on one browser profile: settings first, so the Census key is set
             # before the parcel is looked up.
             for test in [test_page_and_footer, test_static_hover_help, test_settings, test_sliders_and_uses, test_criteria, test_add_errors,
-                         test_address_suggestions, test_full_report, test_road_backup_and_refresh, test_texas_tax_and_exemptions,
+                         test_address_suggestions, test_full_report, test_road_backup_and_refresh, test_people_and_crime, test_texas_tax_and_exemptions,
                          test_criteria_order_shows, test_export,
                          test_demo_list_compare, test_clear_data]:
                 try:
