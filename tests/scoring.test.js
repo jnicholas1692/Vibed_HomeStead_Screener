@@ -48,12 +48,12 @@ test("an unknown flood zone is not treated as safe or as a dealbreaker", () => {
   assert.equal(scoreParcel({ site: { floodZone: "AREA NOT INCLUDED" } }, defaults()).dealbreakers.length, 0);
 });
 
-test("default criteria: the six original ones are ticked, the five new ones are not, and every criterion is in the order", () => {
+test("default criteria: the six original ones are ticked, the newer ones are not, and every criterion is in the order", () => {
   const c = plain(app.get("DEFAULT_SETTINGS.criteria"));
   const labels = Object.keys(plain(app.get("FACTOR_LABELS")));
   assert.deepEqual([...c.order].sort(), [...labels].sort());
   assert.deepEqual(c.order.filter((k) => c.on[k]), ["septic", "airport", "price", "internet", "slope", "rain"]);
-  assert.deepEqual(c.order.filter((k) => !c.on[k]), ["flood", "groundwater", "hazards", "hospital", "grocery"]);
+  assert.deepEqual(c.order.filter((k) => !c.on[k]), ["flood", "groundwater", "hazards", "hospital", "grocery", "agValuation"]);
   for (const key of labels) assert.ok(key in plain(app.get("DEFAULT_SETTINGS.dealbreakers")), `${key} has a dealbreaker switch`);
 });
 

@@ -262,6 +262,12 @@
 .crit-list .order-name { flex: 1 1 140px; font-weight: 600; }
 .summary-table td:nth-child(2) { overflow-wrap: anywhere; }
 
+/* Add window: tax exemptions */
+.exemptions { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.exemptions legend { padding: 0 4px; color: var(--muted); font-size: 0.85rem; }
+.exemptions label.check { display: flex; align-items: center; gap: 6px; color: var(--ink); }   /* box beside its words, not above */
+.exemptions label.check input { width: auto; margin: 0; }
+
 /* Settings > Scoring: what the land is for */
 .use-list { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 

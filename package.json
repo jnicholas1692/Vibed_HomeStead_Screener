@@ -1,6 +1,6 @@
 {
   "name": "homestead-screener",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "private": true,
   "description": "Screen land parcels with free public data. Runs entirely in the browser.",
   "scripts": {

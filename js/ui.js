@@ -205,7 +205,7 @@ function renderList(items) {
       <td class="col-pick"><input type="checkbox" data-compare="${esc(p.id)}" aria-label="Pick ${esc(p.name)} to compare"${compareIds.includes(p.id) ? " checked" : ""}></td>
       <td class="num col-n">${i + 1}</td>
       <td><button class="row-name" type="button" data-open="${esc(p.id)}">${esc(p.name)}</button>${score.dealbreakers.length ? `<span class="badge" title="${esc(score.dealbreakers.join("; "))}">Dealbreaker</span>` : ""}
-        <div class="sub">${esc(countyLabel(p))} &middot; ${esc(p.acres ?? "?")} acres</div></td>
+        <div class="sub">${esc(countyLabel(p))} &middot; ${esc(p.acres ?? "?")} acres${p.acresSource === "appraisal" ? " (appraisal)" : ""}</div></td>
       <td class="num">${money(p.askingPrice)}</td>
       <td><span class="score ${scoreClass(score.total)}">${scoreText(score.total)}</span><div class="sub">${score.factorsScored}/${score.factorsTotal} criteria</div></td>
       <td>${usdaCell(site.usda)}</td>
@@ -363,6 +363,18 @@ function disastersText(d) {
   return `${d.count} <span class="sub">(${esc(d.types.join(", "))})</span>; latest ${esc(latest.type)}, ${esc(latest.date)}${latest.kind ? ` <span class="sub">(${esc(latest.kind)})</span>` : ""}`;
 }
 
+// The exemptions row: what you ticked, a likely ag or wildlife valuation from a Texas record, and who to ask.
+function exemptionsHtml(p) {
+  const text = exemptionsText(p.exemptions);
+  const open = openSpaceValuation(p);
+  const likely = !text && open.from === "appraisal" ? "Ag or wildlife valuation likely <span class=\"sub\">(Texas land category D1)</span>" : "";
+  const ask = isTexasParcel(p)
+    ? ` <span class="sub">Ask the <a href="${esc(appraisalDistrictUrl(p.county || (p.site.texas && p.site.texas.parcel && p.site.texas.parcel.county)))}" target="_blank" rel="noopener">${esc(p.county ? `${p.county} County` : "county")} appraisal district</a>${p.site.texas && p.site.texas.parcel && p.site.texas.parcel.propertyId ? ` about property ID ${esc(p.site.texas.parcel.propertyId)}` : ""}.</span>`
+    : ` <span class="sub">Ask the county assessor or appraisal office.</span>`;
+  if (text) return `${esc(text)} <span class="sub">(you entered)</span>${text === "None" ? "" : ask}`;
+  return `${likely || `unknown: tick them with Edit`}${ask}`;
+}
+
 // The extra flood facts after the Yes or No: FEMA's special flood hazard flag and the base flood elevation, when known.
 function floodExtras(site) {
   const bits = [];
@@ -414,8 +426,10 @@ function texasHtml(tx, p) {
   const row = (label, key, make) => kv(label, failed.includes(key) ? unavailable : make());
   const par = tx.parcel;
   const none = `<span class="sub">none found at this exact point (it may be on a road, or in a county missing from the statewide set)</span>`;
-  const acresNote = par && par.appraisalAcres != null && p.acres > 0 && Math.abs(par.appraisalAcres - p.acres) / p.acres > 0.2
-    ? ` <span class="sub">(you entered ${esc(p.acres)})</span>` : "";
+  const acresNote = p.acresSource === "appraisal" ? ` <span class="sub">(used as the parcel's acres)</span>`
+    : par && par.appraisalAcres != null && p.acres > 0 && Math.abs(par.appraisalAcres - p.acres) / p.acres > 0.2
+      ? ` <span class="sub">(you entered ${esc(p.acres)})</span>` : "";
+  const tax = estimatedTaxBeforeExemptions(p, settings);
   const perAcre = par && par.landValuePerAcre != null ? ` <span class="sub">(${money(par.landValuePerAcre)} an acre)</span>` : "";
   const wells = tx.wells;
   const wellsText = !wells ? `none in the database within ${TX_WELL_RADII_MILES[TX_WELL_RADII_MILES.length - 1]} miles`
@@ -433,7 +447,10 @@ function texasHtml(tx, p) {
     <div class="kv">
       ${row("Appraisal district acres", "parcel", () => (par && par.appraisalAcres != null ? `${esc(par.appraisalAcres)} acres${acresNote}` : par ? "?" : none))}
       ${par ? row("Appraised land value", "parcel", () => (par.landValue != null ? `${money(par.landValue)}${perAcre} <span class="sub">tax year ${esc(par.taxYear || "?")}</span>` : "?")) : ""}
+      ${par && par.improvementValue != null ? row("Appraised improvement value", "parcel", () => money(par.improvementValue)) : ""}
       ${par && par.marketValue != null ? row("Appraised total value", "parcel", () => money(par.marketValue)) : ""}
+      ${tax ? row("Estimated yearly tax before exemptions", "parcel", () => `${money(tax.amount)} <span class="sub">(${tax.ratePct}% ${tax.source === "county" ? "typical county rate" : "your rate from Settings"})</span>`) : ""}
+      ${par && par.yearBuilt ? row("Year built", "parcel", () => esc(par.yearBuilt)) : ""}
       ${par && par.landUse ? row("Land use (appraisal district)", "parcel", () => esc(par.landUse)) : ""}
       ${par ? row("Parcel outline", "parcel", () => (par.outline ? "drawn on the map" : "not available for this parcel")) : ""}
       ${row("Groundwater district", "groundwaterDistrict", () => (gcd && gcd.name ? esc(gcd.name) : "not in a groundwater conservation district"))}
@@ -444,7 +461,7 @@ function texasHtml(tx, p) {
       ${row("Pipelines within half a mile", "pipelines", () => pipeText)}
       ${row("Edwards Aquifer recharge zone", "edwards", () => (edwards && edwards.inRechargeZone ? "Yes" : "No"))}
     </div>
-    <p class="hint">These come from Texas state sources and only appear for parcels in Texas. They do not show who owns the minerals, easements, deed restrictions, or your county's septic (OSSF) rules, so check the deed, a title search and the county. Appraisal values are for tax, not sale price, and farm and ranch land is often taxed at a low farming value. The owner's name and mailing address in the appraisal record are deliberately not shown.</p>`;
+    <p class="hint">These come from Texas state sources and only appear for parcels in Texas. They do not show who owns the minerals, easements, deed restrictions, or your county's septic (OSSF) rules, so check the deed, a title search and the county. Appraisal values are for tax, not sale price. The statewide data has no exemptions and no taxable value after exemptions, and farm and ranch land under ag or wildlife valuation is taxed on a much lower use value, so ask the appraisal district for the real taxable value. The owner's name and mailing address in the appraisal record are deliberately not shown.</p>`;
 }
 
 function roadsHtml(roads) {
@@ -609,6 +626,7 @@ function openDetail(id) {
         ${kv("Average yearly rain", site.annualRainIn != null ? `${site.annualRainIn} in` : "?")}
         ${kv("Nearest airport", esc(drive))}
         ${kv("USDA loan area", usdaCell(site.usda))}
+        ${kv("Tax exemptions", exemptionsHtml(p))}
         ${kv("Plant hardiness zone", site.hardiness ? `${esc(hardinessText(site.hardiness))} <span class="sub">by ZIP ${esc(site.hardiness.zip)}, USDA ${esc(site.hardiness.vintage)} map</span>` : (site.hardiness === undefined ? "not looked up yet" : "?"))}
         ${kv("Data fetched", (p.fetchedAt ? esc(new Date(p.fetchedAt).toLocaleString()) : "never") + (p.filledAt ? ` <span class="sub">(missing data filled in ${esc(new Date(p.filledAt).toLocaleString())})</span>` : ""))}
       </div>
@@ -809,6 +827,7 @@ async function addParcelFromForm(event) {
   const name = $("f-name").value.trim() || address;   // the address is the default name
   let lat = parseNumber($("f-lat").value), lon = parseNumber($("f-lon").value);
   const acres = parseNumber($("f-acres").value), price = parseNumber($("f-price").value);
+  const exemptions = readExemptions();
   if (!name) return fail("Enter a name or an address.");
   if ([lat, lon, acres, price].some((v) => Number.isNaN(v))) return fail("Latitude, longitude, acres and price must be numbers.");
   if ((lat == null) !== (lon == null)) return fail("Enter both latitude and longitude, or neither.");
@@ -832,7 +851,9 @@ async function addParcelFromForm(event) {
       if (!existing) { editingId = null; $("dlg-add").close(); return; }
       // Moving the pin makes every looked-up value wrong, so the data is cleared and fetched again.
       const moved = Math.abs(existing.lat - lat) > 1e-6 || Math.abs(existing.lon - lon) > 1e-6;
+      if (acres !== existing.acres) existing.acresSource = acres == null ? undefined : "you";   // you changed them, so they are yours now
       existing.name = name; existing.address = address || null; existing.acres = acres; existing.askingPrice = price;
+      existing.exemptions = exemptions;
       if (moved) { existing.lat = lat; existing.lon = lon; existing.county = null; existing.site = {}; existing.errors = []; existing.fetchedAt = null; }
       saveParcels();
       renderAll();
@@ -853,7 +874,7 @@ async function addParcelFromForm(event) {
       }
       return;
     }
-    const parcel = { id: newId(), name, address: address || null, lat, lon, county: null, acres, askingPrice: price,
+    const parcel = { id: newId(), name, address: address || null, lat, lon, county: null, acres, askingPrice: price, exemptions,
       status: "new", notes: "", createdAt: new Date().toISOString(), site: {}, errors: [], fetchedAt: null };
     parcels.push(parcel);
     saveParcels();
@@ -870,6 +891,15 @@ async function addParcelFromForm(event) {
     button.disabled = false;
     button.textContent = editingId ? "Save changes" : "Add and look up data";
   }
+}
+
+// The exemption tick boxes in the Add window, by the key they set on the parcel.
+const EXEMPTION_KEYS = ["ag", "wildlife", "homestead", "none"];
+
+// What the tick boxes say, or null when none is ticked (you do not know yet).
+function readExemptions() {
+  const ex = Object.fromEntries(EXEMPTION_KEYS.map((key) => [key, $(`f-ex-${key}`).checked]));
+  return Object.values(ex).some(Boolean) ? ex : null;
 }
 
 /* ---- editing a parcel: the Add window, filled in with the parcel's values ---- */
@@ -895,6 +925,8 @@ function openEdit(id) {
   $("f-lon").value = String(p.lon);
   $("f-acres").value = p.acres ?? "";
   $("f-price").value = p.askingPrice ?? "";
+  const ex = p.exemptions || {};
+  for (const key of EXEMPTION_KEYS) $(`f-ex-${key}`).checked = Boolean(ex[key]);
   nameFromAddress = !p.name || p.name === p.address;
   coordsFromSuggestion = false;
   $("add-error").hidden = true;
@@ -1154,6 +1186,7 @@ const DEALBREAKER_RULES = {
   hazards: "if FEMA rates the area's overall natural hazard risk Very High",
   hospital: "if the nearest emergency hospital is at or beyond the zero minutes below",
   grocery: "if the nearest supermarket is at or beyond the zero minutes below",
+  agValuation: "if you entered that the land has no ag or wildlife valuation",
 };
 
 let criteriaDraft = { order: [], on: {} };   // the criteria being edited; saved with the Save button
@@ -1583,6 +1616,11 @@ $("f-address").addEventListener("blur", () => setTimeout(closeSuggestions, 150))
 // Typing in the Name box takes over from the address; clearing it hands the name back to the address.
 $("f-name").addEventListener("input", () => { nameFromAddress = $("f-name").value.trim() === ""; syncNameToAddress(); });
 for (const id of ["f-lat", "f-lon"]) $(id).addEventListener("input", () => { coordsFromSuggestion = false; });
+// "None of these" and the exemptions cannot both be ticked: ticking one side clears the other.
+$("form-add").addEventListener("change", (event) => {
+  if (event.target.id === "f-ex-none" && event.target.checked) for (const key of ["ag", "wildlife", "homestead"]) $(`f-ex-${key}`).checked = false;
+  else if (/^f-ex-(ag|wildlife|homestead)$/.test(event.target.id) && event.target.checked) $("f-ex-none").checked = false;
+});
 $("dlg-add").addEventListener("close", closeSuggestions);
 
 $("btn-add").addEventListener("click", openAdd);
