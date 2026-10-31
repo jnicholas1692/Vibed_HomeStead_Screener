@@ -2,7 +2,7 @@
 
 // The version shown in the page footer and the day it was released. Change both with every release,
 // along with "version" in package.json and the README version history (tests/version.test.js checks they agree).
-const APP_VERSION = "2.6.1";
+const APP_VERSION = "2.7.0";
 const APP_UPDATED = "2026-10-31";   // year-month-day
 
 // Where sources.js keeps which map server worked last and which are resting (Clear data erases it too).
@@ -11,6 +11,9 @@ const OVERPASS_MEMORY_KEY = "homestead-screener.overpass.v1";
 // The Texas Comptroller's directory of county appraisal districts (who to ask about exemptions and ag valuation).
 // Each county has its own page named after it in lowercase letters: Fort Bend is fortbend.php (checked for all 254).
 const TX_CAD_DIRECTORY_URL = "https://comptroller.texas.gov/taxes/property-tax/county-directory/";
+
+// Where to sign up for the free api.data.gov key the FBI crime figures need.
+const CRIME_KEY_SIGNUP_URL = "https://api.data.gov/signup/";
 
 // Where to sign up for the free Census API key used for the county tax rate and county profile.
 const CENSUS_KEY_SIGNUP_URL = "https://api.census.gov/data/key_signup.html";
@@ -60,7 +63,8 @@ const DEFAULT_SETTINGS = {
   airportMode: "auto",
   airports: [],
   // The order of the sections in a parcel's report (keys from REPORT_SECTIONS).
-  reportOrder: ["data", "soilDetails", "groundwater", "wetlands", "publicLand", "roads", "places", "internet", "climate", "hazards", "more", "texas", "cost"],
+  reportOrder: ["data", "soilDetails", "groundwater", "wetlands", "publicLand", "roads", "places", "internet", "climate", "hazards", "more", "people", "crime", "texas", "cost"],
+  crimeKey: "",                                  // optional free api.data.gov key, needed for the FBI crime figures
 };
 
 // The report sections you can reorder. The score and factor table always come first,
@@ -69,7 +73,8 @@ const REPORT_SECTIONS = [
   ["data", "What the data says"], ["soilDetails", "Soil details"], ["groundwater", "Groundwater"],
   ["wetlands", "Wetlands"], ["publicLand", "Public and protected land"], ["roads", "Road access"],
   ["places", "Nearby"], ["internet", "Internet"], ["climate", "Climate and solar"],
-  ["hazards", "Natural hazards"], ["more", "More local conditions"], ["texas", "Texas details"], ["cost", "Rough cost"],
+  ["hazards", "Natural hazards"], ["more", "More local conditions"], ["people", "People and community"], ["crime", "Crime"],
+  ["texas", "Texas details"], ["cost", "Rough cost"],
 ];
 
 // Cleans up a saved section order: unknown or repeated names are dropped, and any section
@@ -91,6 +96,7 @@ const REPORT_GROUPS = [
   ["land", "Land, soil and water", ["soilDetails", "groundwater", "wetlands", "publicLand"]],
   ["access", "Access and services", ["roads", "places", "internet"]],
   ["climate", "Climate, hazards and area", ["climate", "hazards", "more"]],
+  ["community", "People and safety", ["people", "crime"]],
   ["texas", "Texas", ["texas"]],
   ["money", "Cost and loans", ["cost"]],
 ];
@@ -318,7 +324,8 @@ const DATA_SOURCES = {
   publicLand:   { label: "Public and protected land", name: "USGS Protected Areas Database of the US (PAD-US)",      url: "https://www.usgs.gov/programs/gap-analysis-project/science/pad-us-data-overview", vintage: "current PAD-US release" },
   groundwater:  { label: "Groundwater",            name: "USGS Water Data API (field measurements of groundwater level)", url: "https://waterdata.usgs.gov/",                  vintage: "latest measurement at each well; many are decades old" },
   usda:         { label: "USDA loan area",           name: "USDA Rural Development Single Family Housing eligibility map (ineligible areas)", url: "https://eligibility.sc.egov.usda.gov/eligibility/", vintage: "current USDA map" },
-  censusProfile:{ label: "County profile",         name: "US Census Bureau American Community Survey, 5-year estimates", url: "https://www.census.gov/programs-surveys/acs", vintage: "ACS 5-year estimates for the county" },
+  censusReporter:{ label: "People and community",   name: "Census Reporter, from the US Census Bureau's American Community Survey 5-year estimates", url: "https://censusreporter.org/", vintage: "the latest 5-year survey" },
+  fbiCrime:     { label: "Crime",                    name: "FBI Crime Data Explorer (Uniform Crime Reporting)", url: "https://cde.ucr.cjis.gov/", vintage: "the last full calendar year the agency reported" },
   drought:      { label: "Drought status",           name: "US Drought Monitor (current weekly map, National Drought Mitigation Center)", url: "https://droughtmonitor.unl.edu/", vintage: "the latest weekly map" },
   nws:          { label: "Weather office and alerts", name: "National Weather Service API", url: "https://www.weather.gov/documentation/services-web-api", vintage: "live; alerts are those in effect right now" },
   power:        { label: "Wind and humidity",        name: "NASA POWER climatology", url: "https://power.larc.nasa.gov/", vintage: "long-term averages from NASA satellite and weather model data" },
@@ -405,12 +412,21 @@ const GLOSSARY = {
   "Natural hazard risk (FEMA)": { source: "hazards", text: "FEMA's overall risk rating for the census tract, compared with the rest of the US. It is modeled risk, not a forecast." },
   "Hazards rated high or very high": { source: "hazards", text: "How many of the 18 hazards FEMA rates (tornado, wildfire, hail, flooding and so on) are rated high or very high for the census tract." },
   "Status": { text: "Where the parcel stands in your search, as you set it." },
+  // ---- people and community (the census tract, and the whole county) ----
+  "Population": { source: "censusReporter", text: "People living in the census tract (a neighborhood of a few thousand people drawn by the Census Bureau) and in the whole county. Rural tracts can be large." },
+  "Median age": { source: "censusReporter", text: "The middle age of residents: half are older, half younger. A high median age often means a retirement area." },
+  "Under 18": { source: "censusReporter", text: "Share of residents under 18, a rough sign of how many families with children live nearby." },
+  "Median household income": { source: "censusReporter", text: "The middle household income: half of households earn more, half less." },
+  "Below the poverty line": { source: "censusReporter", text: "Share of residents whose household income is below the federal poverty line." },
+  "Bachelor's degree or more": { source: "censusReporter", text: "Share of adults 25 and older with a bachelor's, master's, professional or doctoral degree." },
+  "Work from home": { source: "censusReporter", text: "Share of workers who mostly work from home, a rough sign of how well remote work goes in the area." },
+  "Households with broadband": { source: "censusReporter", text: "Share of households with a broadband internet subscription of any kind, including cell data plans." },
+  "Median home value": { source: "censusReporter", text: "The middle value owners give their homes. A rough guide to local prices, not an appraisal." },
+  // ---- crime ----
+  "Sheriff's office": { source: "fbiCrime", text: "The county sheriff covers the area outside city limits, where most rural land is. Inside a town, the city police report their own figures." },
+  "Violent crime": { source: "fbiCrime", text: "Murder, rape, robbery and aggravated assault the sheriff reported to the FBI for the year, and the same per 100,000 people it serves, next to Texas and the US. With a small rural population a few incidents move the rate a lot." },
+  "Property crime": { source: "fbiCrime", text: "Burglary, theft and motor vehicle theft the sheriff reported to the FBI for the year, per 100,000 people, next to Texas and the US." },
   // ---- more local conditions ----
-  "County population": { source: "censusProfile", text: "People living in the whole county, from the Census Bureau's 5-year survey estimates. A small number usually means few services, long response times and a small job market nearby." },
-  "County median household income": { source: "censusProfile", text: "The middle household income in the county (half earn more, half less). It hints at local wages and what neighbors can afford, which affects services, schools and resale." },
-  "County median age": { source: "censusProfile", text: "The middle age of county residents. A high median age often means a retirement area, with fewer school-age children." },
-  "County median home value": { source: "censusProfile", text: "The middle value owners give their homes in the county. It is a rough gauge of what land plus a house sells for nearby." },
-  "Households with broadband (county)": { source: "censusProfile", text: "Share of county households with a broadband internet subscription of any kind, including cellular and satellite. It is a survey result for the whole county, not the availability at your spot." },
   "Drought now": { source: "drought", text: "The category of the latest US Drought Monitor weekly map at this spot: D0 abnormally dry, D1 moderate, D2 severe, D3 extreme or D4 exceptional drought. No drought means the spot is outside every drought area on the map. Drought matters for wells, ponds, grass and fire risk." },
   "Weather service office": { source: "nws", text: "The National Weather Service forecast office that covers this spot, and a nearby town. Its website has forecasts, past storms and local warnings." },
   "Weather alerts now": { source: "nws", text: "Weather watches, warnings and advisories in effect at this spot right now, according to the National Weather Service. They change hour by hour, so this is only a snapshot from when the data was fetched." },
@@ -585,6 +601,8 @@ const UI_TIPS = {
   "f-ex-wildlife": "Tick if the land is valued for wildlife management, a kind of open-space valuation for land that was in ag use.",
   "f-ex-homestead": "Tick if the current owner has a homestead exemption. It ends when the land is sold; you would apply for your own.",
   "f-ex-none": "Tick if you checked and the land has none of these. Leave every box empty if you do not know yet.",
+  "c-crime-key": "A free key from api.data.gov. With it the app can show crime reported by the county sheriff to the FBI. It stays in this browser and is sent only to the FBI's service (api.usa.gov).",
+  "c-crime-key-link": "Opens the api.data.gov sign-up page in a new tab. It asks for your name and email and emails you a key. Paste it above and press Save settings.",
   "c-apply-recommended": "Move every slider to the recommended range for the uses you ticked. Price and airport drive are left as they are. Nothing is saved until you press Save settings.",
   "c-tick-suggested": "Tick the criteria that matter for the uses you ticked, and leave the rest as they are. Nothing is saved until you press Save settings.",
   "tab-scoring": "Spend your 10 points and set dealbreakers and the ranges that decide each score.",
@@ -608,6 +626,7 @@ const GROUP_TIPS = {
   land: "Soil details, groundwater, wetlands and nearby protected land. Click the heading to collapse or expand this category.",
   access: "Roads, nearby places and services, and internet. Click the heading to collapse or expand this category.",
   climate: "Climate and solar, natural hazards, and county, drought, wind and facility details. Click the heading to collapse or expand this category.",
+  community: "Who lives in the area (the census tract and the county) and crime reported by the county sheriff. Click the heading to collapse or expand this category.",
   texas: "Details from Texas state sources. This category only appears for parcels in Texas. Click the heading to collapse or expand it.",
   money: "Rough monthly and start-up costs, with land, conventional and FHA loan numbers. Click the heading to collapse or expand this category.",
 };
@@ -624,7 +643,9 @@ const SECTION_TIPS = {
   climate: "Freeze dates, hot days, snow and sunlight, with a rough solar estimate.",
   soilDetails: "Soil texture, wetness, depth to rock, shrink-swell and how suitable the soil is for building.",
   hazards: "FEMA's natural hazard risk ratings for the census tract.",
-  more: "County population, income and broadband, drought, weather alerts, wind and humidity, and nearby regulated facilities.",
+  people: "Population, age, income, poverty, education, working from home and broadband, for the neighborhood and the whole county.",
+  crime: "Violent and property crime reported by the county sheriff to the FBI, with Texas and US rates to compare. Needs a free key in Settings.",
+  more: "Drought, weather alerts, wind and humidity, and nearby regulated facilities.",
   texas: "Texas-only details: appraisal parcel, groundwater district, school district, nearby wells, oil and gas, and the Edwards Aquifer zone. Hidden for parcels outside Texas.",
   cost: "Rough monthly cost and start-up cost, with land, conventional and FHA loan numbers.",
 };

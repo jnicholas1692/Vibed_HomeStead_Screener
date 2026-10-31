@@ -405,27 +405,58 @@ function floodExtras(site) {
   return bits.length ? ` <span class="sub">(${esc(bits.join("; "))})</span>` : "";
 }
 
-// "More local conditions": the county profile, drought, weather office and alerts, wind, design rainfall and nearby regulated facilities.
+// "People and community": survey figures for the census tract next to the whole county.
+function peopleHtml(more) {
+  if (more === undefined || !("people" in more || (more.failed || []).includes("people"))) return `<p class="hint">${notYetText()}</p>`;
+  if ((more.failed || []).includes("people")) return `<p class="hint">Could not load; use Refresh data to try again.</p>`;
+  const people = more.people;
+  if (!people || (!people.tract && !people.county)) return `<p class="hint">No survey figures for this spot.</p>`;
+  const num = (v) => (v == null ? "?" : Number(v).toLocaleString("en-US"));
+  const pct = (v) => (v == null ? "?" : `${v}%`);
+  const cash = (v) => (v == null ? "?" : money(v));
+  const rows = [
+    ["Population", "population", num], ["Median age", "medianAge", num], ["Under 18", "under18Pct", pct],
+    ["Median household income", "medianIncome", cash], ["Below the poverty line", "povertyPct", pct],
+    ["Bachelor's degree or more", "bachelorsPct", pct], ["Work from home", "workFromHomePct", pct],
+    ["Households with broadband", "broadbandPct", pct], ["Median home value", "medianHomeValue", cash],
+  ];
+  const cell = (place, key, format) => (place ? esc(format(place[key])) : "?");
+  return `<div class="table-scroll"><table><thead><tr><th></th><th class="num">${tipSpan("This area", "The census tract the spot is in: a neighborhood of a few thousand people drawn by the Census Bureau. Rural tracts can cover many miles.")}</th><th class="num">${tipSpan("Whole county", "The same figures for the whole county, to compare with.")}</th></tr></thead>
+    <tbody>${rows.map(([label, key, format]) => `<tr><td>${helpLabel(label)}</td><td class="num">${cell(people.tract, key, format)}</td><td class="num">${cell(people.county, key, format)}</td></tr>`).join("")}</tbody></table></div>
+    <p class="hint">Estimates from the Census Bureau's American Community Survey${people.release ? ` (${esc(people.release)})` : ""}, an average over five years of surveys, through Census Reporter. Small rural areas have wide margins of error, so treat close numbers as about the same.</p>`;
+}
+
+// "Crime": what the county sheriff reported to the FBI for the last full year, with Texas and US rates.
+function crimeHtml(more) {
+  if (more === undefined || !("crime" in more || (more.failed || []).includes("crime"))) return `<p class="hint">${notYetText()}</p>`;
+  if ((more.failed || []).includes("crime")) return `<p class="hint">Could not load; use Refresh data to try again.</p>`;
+  const crime = more.crime;
+  if (crime && crime.needsKey) {
+    return `<p class="hint">${crime.keyRejected ? "The FBI's service did not accept your crime data key." : "The FBI's crime figures need a free key."} Get one at <a href="${CRIME_KEY_SIGNUP_URL}" target="_blank" rel="noopener">api.data.gov/signup</a>, paste it into Settings &gt; Costs and loans, then click Refresh data.</p>`;
+  }
+  if (!crime) return `<p class="hint">No county found for this spot, so there is no sheriff to look up.</p>`;
+  if (!crime.agency) return `<p class="hint">The FBI's list has no county sheriff for this county.</p>`;
+  const per = (v) => (v == null ? "?" : Number(v).toLocaleString("en-US"));
+  const row = (label, o) => `<tr><td>${helpLabel(label)}</td><td class="num">${o ? per(o.count) : "?"}</td><td class="num">${o ? per(o.ratePer100k) : "?"}</td><td class="num">${o ? per(o.stateRate) : "?"}</td><td class="num">${o ? per(o.usRate) : "?"}</td></tr>`;
+  const months = Math.min(crime.violent ? crime.violent.months : 12, crime.property ? crime.property.months : 12);
+  return `<div class="kv">${kv("Sheriff's office", `${esc(crime.agency)} <span class="sub">${esc(crime.year)}${crime.violent && crime.violent.population ? `, serving about ${per(crime.violent.population)} people` : ""}</span>`)}</div>
+    <div class="table-scroll"><table><thead><tr><th></th><th class="num">Offenses</th><th class="num">Per 100,000</th><th class="num">Texas</th><th class="num">US</th></tr></thead>
+      <tbody>${row("Violent crime", crime.violent)}${row("Property crime", crime.property)}</tbody></table></div>
+    ${months < 12 ? `<p class="notice">The sheriff reported only ${months} of 12 months, so these numbers are low.</p>` : ""}
+    <p class="hint">Offenses the county sheriff reported to the FBI for the year. The sheriff covers the county outside city limits; towns report their own figures. Rates are per 100,000 people the sheriff serves (the Texas and US columns are for the whole state and country), and with a small rural population a few incidents change the rate a lot. It says nothing about a particular road or neighborhood, so ask neighbors and the sheriff's office too.</p>`;
+}
+
+// "More local conditions": drought, weather office and alerts, wind, nearby regulated facilities and disaster declarations.
 function moreHtml(more) {
   if (more === undefined) return `<p class="hint">${notYetText()}</p>`;
   const failed = more.failed || [];
   const unavailable = `<span class="sub">could not load; use Refresh data to try again</span>`;
   const noData = `<span class="sub">no data for this spot</span>`;
   const row = (label, key, make) => kv(label, failed.includes(key) ? unavailable : (more[key] ? make(more[key]) : noData));
-  const prof = more.countyProfile;
-  const needsKey = prof && prof.needsKey;
-  const profRow = (label, make) => (failed.includes("countyProfile") ? kv(label, unavailable) : needsKey ? kv(label, `<span class="sub">needs a free Census key in Settings</span>`)
-    : prof ? kv(label, make(prof)) : kv(label, noData));
-  const num = (n) => (n == null ? "?" : Number(n).toLocaleString("en-US"));
   const droughtText = (d) => (d.level
     ? `${esc(d.level)}: ${esc(d.name)} <span class="sub">map of ${esc(d.date || "?")}</span>`
     : `no drought here <span class="sub">current map</span>`);
   return `<div class="kv">
-      ${profRow("County population", (c) => num(c.population))}
-      ${profRow("County median household income", (c) => (c.medianIncome == null ? "?" : money(c.medianIncome)))}
-      ${profRow("County median age", (c) => (c.medianAge == null ? "?" : esc(c.medianAge)))}
-      ${profRow("County median home value", (c) => (c.medianHomeValue == null ? "?" : money(c.medianHomeValue)))}
-      ${profRow("Households with broadband (county)", (c) => (c.broadbandPct == null ? "?" : `${c.broadbandPct}%`))}
       ${row("Drought now", "drought", droughtText)}
       ${row("Weather service office", "weather", (w) => `${esc(w.office || "?")}${w.nearTown ? ` <span class="sub">near ${esc(w.nearTown)}</span>` : ""}`)}
       ${row("Weather alerts now", "weather", (w) => (w.alerts.length ? esc(w.alerts.join(", ")) : "none in effect"))}
@@ -689,7 +720,15 @@ function openDetail(id) {
     more: `
       <h3>More local conditions</h3>
       ${moreHtml(site.more)}
-      ${(() => { const keys = sourceKeysUsed(p).filter((k) => ["censusProfile", "drought", "nws", "power", "echo"].includes(k)); return keys.length ? sourceHtml(keys, site) : ""; })()}`,
+      ${(() => { const keys = sourceKeysUsed(p).filter((k) => ["drought", "nws", "power", "echo", "femaDisasters"].includes(k)); return keys.length ? sourceHtml(keys, site) : ""; })()}`,
+    people: `
+      <h3>People and community</h3>
+      ${peopleHtml(site.more)}
+      ${sourceKeysUsed(p).includes("censusReporter") ? sourceHtml("censusReporter", site) : ""}`,
+    crime: `
+      <h3>Crime</h3>
+      ${crimeHtml(site.more)}
+      ${sourceKeysUsed(p).includes("fbiCrime") ? sourceHtml("fbiCrime", site) : ""}`,
     texas: isTexasParcel(p) ? `
       <h3>Texas details</h3>
       ${texasHtml(site.texas, p)}
@@ -1392,6 +1431,9 @@ function openCriteria() {
         ${numberBoxes(COST_FIELDS)}
         <label class="wide">Census API key (optional and free; lets the app look up your county's typical property tax rate)
           <input id="c-census-key" value="${esc(settings.censusKey)}" autocomplete="off" placeholder="Paste your key here"></label>
+        <label class="wide">Crime data key (optional and free; lets the app show crime reported by the county sheriff to the FBI)
+          <input id="c-crime-key" value="${esc(settings.crimeKey)}" autocomplete="off" placeholder="Paste your api.data.gov key here"></label>
+        <p class="hint wide key-help">No key yet? <a id="c-crime-key-link" href="${CRIME_KEY_SIGNUP_URL}" target="_blank" rel="noopener noreferrer">Get a free api.data.gov key</a>. It opens in a new tab, and the key is emailed to you. Paste it above, press Save settings, then Refresh data on a parcel.</p>
         <p class="hint wide key-help">No key yet? <a id="c-census-key-link" href="${CENSUS_KEY_SIGNUP_URL}" target="_blank" rel="noopener noreferrer">Get a free Census API key</a>. It opens in a new tab, and the Census emails the key to you. Paste it above, press Save settings, then Refresh data on a parcel.</p>
         <label class="check wide"><input type="checkbox" id="c-use-county-tax" ${settings.costs.useCountyTax !== false ? "checked" : ""}> Use the county's typical tax rate when it is known (otherwise use the rate above)</label>
       </div>
@@ -1462,6 +1504,7 @@ function saveCriteria(event) {
     return;
   }
   next.censusKey = $("c-census-key").value.trim();
+  next.crimeKey = $("c-crime-key").value.trim();
   next.reportOrder = normalizeReportOrder(orderDraft);
   next.costs.useCountyTax = $("c-use-county-tax").checked;
   next.airportMode = $("c-airport-mode").value;
@@ -1701,9 +1744,10 @@ $("criteria-fields").addEventListener("change", (event) => {
 });
 
 $("btn-reset-criteria").addEventListener("click", () => {
-  const keptKey = settings.censusKey;              // resetting the criteria should not throw away your API key
+  const keptKey = settings.censusKey, keptCrimeKey = settings.crimeKey;   // resetting the criteria should not throw away your keys
   settings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
   settings.censusKey = keptKey;
+  settings.crimeKey = keptCrimeKey;
   writeStored(SETTINGS_KEY, settings);
   recomputeAirports();
   $("dlg-criteria").close();

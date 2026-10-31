@@ -36,6 +36,8 @@ This is a personal test of AI-assisted development. I am using it to see how far
 - Nearest fire station, police or sheriff, and emergency hospital
 - FEMA natural hazard ratings for all 18 hazards FEMA rates (tornado, wildfire, hail, flooding, earthquake and more), plus FEMA's social vulnerability and community resilience ratings
 - Federal disaster declarations for the county in the last 10 years
+- People and community for the neighborhood (census tract) next to the whole county: population, age, under 18, income, poverty, college degrees, working from home, broadband and home value, with no key needed
+- Crime reported by the county sheriff to the FBI for the last full year, per 100,000 people next to Texas and the US (needs a free api.data.gov key in Settings)
 - Which way the ground slopes, and how fast water soaks through the soil
 - For Texas parcels, the appraisal district's parcel outline drawn on the map
 - USDA plant hardiness zone
@@ -74,6 +76,8 @@ This is a personal test of AI-assisted development. I am using it to see how far
 | Public and protected land | USGS Protected Areas Database (PAD-US) |
 | Groundwater | USGS Water Data API |
 | Disaster declarations | OpenFEMA Disaster Declarations Summaries |
+| People and community | Census Reporter (US Census Bureau American Community Survey 5-year estimates) |
+| Crime | FBI Crime Data Explorer (free api.data.gov key) |
 | County property tax rate | Census American Community Survey (free API key) |
 
 ## Privacy
@@ -133,6 +137,7 @@ Add `--headed` to watch the browser. Passing tests cannot prove a real service s
 - **v2.0.2** The main page links to the GitHub repository
 - **v2.1.0** Hover explanations on every data point and Settings option; hunting removed; a Texas details section (parcel record, groundwater district, school district, wells, pipelines, oil and gas, Edwards zone) shown only for Texas parcels; a More local conditions section (county profile, drought, weather alerts, wind, facilities); report grouped into collapsible categories. 133 unit tests.
 - **v2.2.0** A Get a free Census API key link right under the key box in Settings; the page footer shows the version and the date of the last update. 136 unit tests.
+- **v2.7.0** A People and safety category: People and community (tract and county survey figures from Census Reporter, no key) replaces the county profile that needed a Census key, and Crime shows what the county sheriff reported to the FBI, compared with Texas and the US, once you add a free api.data.gov key in Settings. 183 unit tests, 229 browser checks.
 - **v2.6.1** On phones, tapping a dotted label opens its explanation and keeps it open until you tap somewhere else. Before, phones closed it at once, and tapping the words of a box (like Road detour factor) or a tick box jumped to the box or ticked it. 213 browser checks.
 - **v2.6.0** Texas parcels fill in blank acres from the appraisal record and show the improvement value, year built and an estimated yearly tax before exemptions; tax exemptions (ag, wildlife, homestead, none) can be ticked on any parcel, with a link to the Texas county appraisal district; a new Ag or wildlife valuation criterion. The free statewide parcel data has no exemptions or taxable value, so those come from you (or a likely yes when a county marks the land category D1). 177 unit tests, 189 browser checks.
 - **v2.5.0** Every scoring range in Settings is a two-ended slider linked to its two number boxes; a new "What will you use the land for?" section (homestead, farm, small vegetable garden, backyard livestock, residential home) shows recommended ranges under each slider and suggested criteria, with buttons to apply them. The recommendations are rules of thumb, not standards. 170 unit tests, 170 browser checks.

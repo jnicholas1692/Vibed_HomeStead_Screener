@@ -368,7 +368,8 @@ function sourceKeysUsed(parcel) {
   const more = site.more;
   if (more) {
     const okm = (key) => !(more.failed || []).includes(key);
-    if (okm("countyProfile") && more.countyProfile && !more.countyProfile.needsKey) used.push("censusProfile");
+    if (okm("people") && more.people) used.push("censusReporter");
+    if (okm("crime") && more.crime && more.crime.agency) used.push("fbiCrime");
     if (okm("drought")) used.push("drought");
     if (okm("weather")) used.push("nws");
     if (okm("wind")) used.push("power");

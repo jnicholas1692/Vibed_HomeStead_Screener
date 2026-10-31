@@ -100,10 +100,23 @@ test("source keys list the Texas sources that answered", () => {
 });
 
 // ---- more local conditions ----
-test("county profile: parses the ACS row and treats negative numbers as missing", () => {
+test("people: Census Reporter tables become plain figures; negative or missing values count as unknown", () => {
   const { app } = texasApp();
-  const out = plain(app.get("parseCountyProfile")([["NAME", "B01003_001E", "B19013_001E", "B01002_001E", "B25077_001E", "B28002_001E", "B28002_004E"], ["Blanco County, Texas", "12000", "-666666666", "50.2", "400000", "5000", "4000"]], 2023));
-  assert.equal(out.population, 12000); assert.equal(out.medianIncome, null); assert.equal(out.broadbandPct, 80);
+  const table = (id, values) => ({ [id]: { estimate: Object.fromEntries(Object.entries(values).map(([line, v]) => [`${id}${line}`, v])) } });
+  // Figures from the real reply for Blanco County (ACS 2024 5-year), as checked from the live site.
+  const county = { ...table("B01003", { "001": 12446 }), ...table("B01002", { "001": 51.5 }), ...table("B09001", { "001": 2182 }),
+    ...table("B19013", { "001": 92425 }), ...table("B17001", { "001": 12301, "002": 1038 }),
+    ...table("B15003", { "001": 9702, "022": 2499, "023": 699, "024": 155, "025": 82 }), ...table("B08301", { "001": 5557, "021": 874 }),
+    ...table("B28002", { "001": 5166, "004": 4607 }), ...table("B25077", { "001": 483500 }) };
+  const out = plain(app.get("summarizePeople")({ release: { name: "ACS 2024 5-year", years: "2020-2024" }, data: { "05000US48031": county } }, null, "05000US48031"));
+  assert.equal(out.release, "ACS 2024 5-year (2020-2024)");
+  assert.equal(out.tract, null);
+  assert.deepEqual(out.county, { population: 12446, medianAge: 51.5, under18Pct: 17.5, medianIncome: 92425, povertyPct: 8.4,
+    bachelorsPct: 35.4, workFromHomePct: 15.7, broadbandPct: 89.2, medianHomeValue: 483500 });
+  const odd = plain(app.get("summarizePlace")({ ...table("B19013", { "001": -666666666 }), ...table("B01003", { "001": 100 }) }));
+  assert.equal(odd.medianIncome, null);
+  assert.equal(odd.povertyPct, null);
+  assert.equal(app.get("summarizePeople")(null), null);
 });
 
 test("drought: reads the category at the spot, and no shape means no drought", () => {
@@ -125,7 +138,7 @@ test("weather office, wind and humidity, and ECHO parsing", () => {
 
 test("lookupMore keeps going when one service fails", async () => {
   const fetch = fakeFetch({
-    "api.census.gov": json([["NAME", "B01003_001E", "B19013_001E", "B01002_001E", "B25077_001E", "B28002_001E", "B28002_004E"], ["X County", "100", "50000", "40", "200000", "50", "40"]]),
+    "api.censusreporter.org": json({ release: { name: "ACS 2024 5-year" }, data: { "05000US48031": { B01003: { estimate: { B01003001: 100 } } } } }),
     "USDM_current": { status: 500, body: "x" },
     "api.weather.gov/points": json({ properties: { cwa: "EWX" } }), "api.weather.gov/alerts": json({ features: [] }),
     "power.larc.nasa.gov": json({ properties: { parameter: { WS10M: { ANN: 3 }, RH2M: { ANN: 50 } } } }),
@@ -136,9 +149,11 @@ test("lookupMore keeps going when one service fails", async () => {
       { disasterNumber: 3649, declarationDate: "2026-07-18T00:00:00.000Z", incidentType: "Flood", declarationType: "EM" }] }),
   });
   const app = loadScripts(["config.js", "scoring.js", "sources.js"], { fetch });
-  const more = plain(await app.get("lookupMore")({ lat: 30.2, lon: -98.4, stateFips: "48", countyFips: "031" }, ""));
+  const more = plain(await app.get("lookupMore")({ lat: 30.2, lon: -98.4, stateFips: "48", countyFips: "031", state: "TX", county: "Blanco" }, ""));
   assert.deepEqual(more.failed, ["drought"]);
-  assert.equal(more.countyProfile.population, 100);
+  assert.equal(more.people.county.population, 100);
+  assert.deepEqual(more.crime, { needsKey: true });                // no crime key: no request to the FBI at all
+  assert.equal(fetch.calls.some((c) => c.url.includes("api.usa.gov")), false);
   assert.equal(more.weather.office, "EWX");
   assert.equal(more.facilities.facilities, 0);
   assert.equal(more.disasters.count, 2);                         // the repeated disaster counts once
