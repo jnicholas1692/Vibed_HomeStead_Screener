@@ -34,13 +34,14 @@ This is a personal test of AI-assisted development. I am using it to see how far
 - Nearest road and nearest paved public road
 - Mapped wetlands, and nearby public and protected land
 - Groundwater depth at the nearest USGS monitoring wells
-- County property tax rate (needs a free Census key) used in the cost estimate
+- County property tax rate (needs a free Census key; Settings links straight to the Census sign-up page) used in the cost estimate
 - Every section of the report names its data source, link and date
 - Hover over (or tap, or tab to) a dotted label to see in plain words what the data means and who supplies it
 - Sort, filter by status, and hide dealbreakers
 - Compare up to three parcels side by side
 - Rough monthly and start-up cost estimate from rates you set
 - Print a parcel summary, or copy it as text to send to someone
+- The page footer shows the app's version and the date it was last updated
 
 ## Data sources (all free, no API keys)
 
@@ -66,7 +67,7 @@ This is a personal test of AI-assisted development. I am using it to see how far
 
 ## Privacy
 
-There is no account and no backend. To look up a parcel, the app sends that parcel's address or coordinates directly from your browser to the services above (Census, FEMA, USGS, USDA, US Fish and Wildlife Service, Open-Meteo, FCC, Overpass, OSRM and phzmapi.org). If you add a free Census API key in Criteria, it is stored in your browser and sent only to the Census. Nothing is sent anywhere else, and your notes and criteria never leave your browser. Use Export in the app to back up your parcels, because clearing your browser data erases them.
+There is no account and no backend. To look up a parcel, the app sends that parcel's address or coordinates directly from your browser to the services above (Census, FEMA, USGS, USDA, US Fish and Wildlife Service, Open-Meteo, FCC, Overpass, OSRM and phzmapi.org). If you add a free Census API key in Settings, it is stored in your browser and sent only to the Census. Nothing is sent anywhere else, and your notes and criteria never leave your browser. Use Export in the app to back up your parcels, because clearing your browser data erases them.
 
 ## Limits to know about
 
@@ -108,6 +109,7 @@ npm test
 - **v2.0.1** Groundwater now uses the new USGS Water Data API (the old service was retired); it shows the nearest wells with their last measurement date and age, and warns when all readings are over 10 years old
 - **v2.0.2** The main page links to the GitHub repository
 - **v2.1.0** Hover explanations on every data point and Settings option; hunting removed; a Texas details section (parcel record, groundwater district, school district, wells, pipelines, oil and gas, Edwards zone) shown only for Texas parcels; a More local conditions section (county profile, drought, weather alerts, wind, facilities); report grouped into collapsible categories. 133 unit tests.
+- **v2.2.0** A Get a free Census API key link right under the key box in Settings; the page footer shows the version and the date of the last update. 136 unit tests.
 - **v1.9.1** Drag the report sections into order in Settings (Up and Down still work)
 - **v1.9.0** Down payment in dollars; asking price next to the name in the list; 30-year conventional and FHA payments beside your land loan; a USDA loan area Yes or No from USDA's eligibility map
 - **v1.8.0** Edit a parcel's name, address, location, acres and price after adding it; choose the order of the report sections in Settings (the Criteria button is now Settings)

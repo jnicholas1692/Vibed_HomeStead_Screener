@@ -496,7 +496,7 @@ function hazardsHtml(hazards) {
 function taxKeyHint(parcel) {
   const t = (parcel.site || {}).taxRate;
   if (t === undefined) return "";
-  if (t && t.needsKey) return `<p class="hint">${t.keyRejected ? "The Census did not accept your API key." : "The Census asks for a free API key before it will share county tax rates."} Get one at <a href="https://api.census.gov/data/key_signup.html" target="_blank" rel="noopener">api.census.gov/data/key_signup.html</a> and paste it into Criteria, then click Refresh data.</p>`;
+  if (t && t.needsKey) return `<p class="hint">${t.keyRejected ? "The Census did not accept your API key." : "The Census asks for a free API key before it will share county tax rates."} Get one at <a href="${CENSUS_KEY_SIGNUP_URL}" target="_blank" rel="noopener">api.census.gov/data/key_signup.html</a> and paste it into Settings &gt; Costs and loans, then click Refresh data.</p>`;
   if (t === null) return `<p class="hint">The Census has no property tax figure for this county, so your own tax setting is used.</p>`;
   return "";
 }
@@ -1176,7 +1176,8 @@ function openCriteria() {
         <p class="hint wide">These are placeholders for the rough cost estimate and the loan comparison. Replace them with real quotes for the area you are searching.</p>
         ${numberBoxes(COST_FIELDS)}
         <label class="wide">Census API key (optional and free; lets the app look up your county's typical property tax rate)
-          <input id="c-census-key" value="${esc(settings.censusKey)}" autocomplete="off" placeholder="Paste a key from api.census.gov/data/key_signup.html"></label>
+          <input id="c-census-key" value="${esc(settings.censusKey)}" autocomplete="off" placeholder="Paste your key here"></label>
+        <p class="hint wide key-help">No key yet? <a id="c-census-key-link" href="${CENSUS_KEY_SIGNUP_URL}" target="_blank" rel="noopener noreferrer">Get a free Census API key</a>. It opens in a new tab, and the Census emails the key to you. Paste it above, press Save settings, then Refresh data on a parcel.</p>
         <label class="check wide"><input type="checkbox" id="c-use-county-tax" ${settings.costs.useCountyTax !== false ? "checked" : ""}> Use the county's typical tax rate when it is known (otherwise use the rate above)</label>
       </div>
     </div>
@@ -1527,6 +1528,7 @@ function viewChanged() {
 }
 for (const id of ["sort-by", "filter-status", "hide-dealbreakers"]) $(id).addEventListener("change", viewChanged);
 
+$("app-version").textContent = versionText(APP_VERSION, APP_UPDATED);
 initMap();
 renderAll();
 applyStaticTips();

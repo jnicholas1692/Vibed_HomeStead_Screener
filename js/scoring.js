@@ -14,6 +14,15 @@ function linearScore(value, best, worst) {
 const money = (n) => (n == null ? "?" : "$" + Math.round(n).toLocaleString("en-US"));
 const scoreText = (v) => (v == null ? "n/a" : Math.round(v));
 
+// The footer line, for example "Version 2.2.0, last updated October 31, 2026".
+// The date is split by hand instead of using new Date("2026-10-31"), because that reads it as midnight UTC
+// and in US time zones it would show the day before.
+function versionText(version, isoDate) {
+  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const [year, month, day] = isoDate.split("-").map(Number);
+  return `Version ${version}, last updated ${months[month - 1]} ${day}, ${year}`;
+}
+
 function driveMinutes(straightLineMiles, s) {
   return straightLineMiles * s.detourFactor / s.avgMph * 60;
 }
