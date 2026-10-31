@@ -165,6 +165,8 @@
   .fields .wide { grid-column: 1 / -1; }
 
   footer.wrap { color: var(--muted); font-size: 0.82rem; padding-block: 8px 28px; }
+  footer .build { display: block; margin-top: 6px; }
+  .fields .key-help { margin-top: -6px; }   /* sits just under the Census key box it explains */
 
   /* ---- printing: only the open dialog (a parcel summary or the comparison) goes to paper ---- */
   .head-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }

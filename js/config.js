@@ -1,5 +1,13 @@
 "use strict";
 
+// The version shown in the page footer and the day it was released. Change both with every release,
+// along with "version" in package.json and the README version history (tests/version.test.js checks they agree).
+const APP_VERSION = "2.2.0";
+const APP_UPDATED = "2026-10-31";   // year-month-day
+
+// Where to sign up for the free Census API key used for the county tax rate and county profile.
+const CENSUS_KEY_SIGNUP_URL = "https://api.census.gov/data/key_signup.html";
+
 /* =====================================================================
    1. Criteria (what "good land" means to you). Saved in this browser.
    ===================================================================== */
@@ -440,10 +448,12 @@ const UI_TIPS = {
   "c-airports": "One airport per line as: name, latitude, longitude. The nearest one counts.",
   "c-airport-preset": "Pick an airport from the built-in list to add it to your list.",
   "c-census-key": "A free key from the US Census Bureau. With it the app can look up your county's typical property tax rate.",
+  "c-census-key-link": "Opens the Census Bureau's sign-up page in a new tab. It asks for an organization name (your own name is fine) and an email address, and the Census emails you a key. It stays in this browser and is sent only to the Census.",
   "c-use-county-tax": "When on, the cost estimate uses the county's typical property tax rate if it is known, instead of the percent above.",
   "c-order-reset": "Put the report sections back in their starting order. Nothing changes until you press Save settings.",
   "d-status": "Where the parcel stands in your search. It sets the Status filter in the list.",
   "d-notes": "Your own notes. They are saved in this browser with the parcel, and printed with the report.",
+  "app-version": "The version of the app you are using and the day it was last updated. What changed in each version is listed in the README on GitHub.",
 };
 
 // What each report category holds, shown when you hover its heading.
