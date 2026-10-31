@@ -452,12 +452,15 @@ function roadsHtml(roads) {
   if (roads === null) return `<p class="hint">No road data for this spot.</p>`;
   const describe = (road) => (road ? `${esc(road.name)} <span class="sub">(${esc(road.type.replace(/_/g, " "))}${road.surface === "unknown" ? "" : `, ${esc(road.surface)}`}${road.access ? `, access: ${esc(road.access)}` : ""})</span>` : "");
   const far = !roads.nearest || roads.nearest.distanceFt > 1500;
+  const noneWithin = roads.searchedMeters ? `none within ${esc(distanceText(Math.round(roads.searchedMeters * 3.28084)))}` : "none found";
   return `${far ? `<p class="notice">${roads.nearest ? "The nearest road is far from this spot" : "No road found near this spot"}. Confirm how you would get to the land, and whether you have a legal right to use that route.</p>` : ""}
     <div class="kv">
-      ${kv("Nearest road", roads.nearest ? `${esc(distanceText(roads.nearest.distanceFt))} away: ${describe(roads.nearest)}` : `none within ${esc(distanceText(Math.round(roads.searchedMeters * 3.28084)))}`)}
-      ${kv("Nearest paved public road", roads.nearestPublicPaved ? `${esc(distanceText(roads.nearestPublicPaved.distanceFt))} away: ${describe(roads.nearestPublicPaved)}` : `none within ${esc(distanceText(Math.round(roads.searchedMeters * 3.28084)))}`)}
+      ${kv("Nearest road", roads.nearest ? `${esc(distanceText(roads.nearest.distanceFt))} away: ${describe(roads.nearest)}` : noneWithin)}
+      ${kv("Nearest paved public road", roads.nearestPublicPaved ? `${esc(distanceText(roads.nearestPublicPaved.distanceFt))} away: ${describe(roads.nearestPublicPaved)}`
+        : roads.source === "osrm" ? `<span class="sub">not known: the map servers were busy, so only the backup nearest-road answer came back. Use Refresh data later.</span>` : noneWithin)}
     </div>
-    <p class="hint">From OpenStreetMap. This shows that a road exists near the point you picked, not that the parcel touches it or that you may use it. Many rural roads and driveways are private, and some roads are missing. Legal access (road frontage, an easement) shows up in the deed and the survey, so check those with the county and a title company.</p>`;
+    ${roads.source === "tiger" ? `<p class="notice">The OpenStreetMap servers were busy, so these roads come from the Census Bureau's TIGER road map instead. It does not record surfaces, so only highways count as paved here, and a paved county road nearby may not show. Use Refresh all later for the OpenStreetMap details.</p>` : ""}
+    <p class="hint">${roads.source === "tiger" ? "From the US Census Bureau's TIGER roads." : "From OpenStreetMap."} This shows that a road exists near the point you picked, not that the parcel touches it or that you may use it. Many rural roads and driveways are private, and some roads are missing. Legal access (road frontage, an easement) shows up in the deed and the survey, so check those with the county and a title company.</p>`;
 }
 
 function climateHtml(climate, solar) {
@@ -607,7 +610,7 @@ function openDetail(id) {
         ${kv("Nearest airport", esc(drive))}
         ${kv("USDA loan area", usdaCell(site.usda))}
         ${kv("Plant hardiness zone", site.hardiness ? `${esc(hardinessText(site.hardiness))} <span class="sub">by ZIP ${esc(site.hardiness.zip)}, USDA ${esc(site.hardiness.vintage)} map</span>` : (site.hardiness === undefined ? "not looked up yet" : "?"))}
-        ${kv("Data fetched", p.fetchedAt ? esc(new Date(p.fetchedAt).toLocaleString()) : "never")}
+        ${kv("Data fetched", (p.fetchedAt ? esc(new Date(p.fetchedAt).toLocaleString()) : "never") + (p.filledAt ? ` <span class="sub">(missing data filled in ${esc(new Date(p.filledAt).toLocaleString())})</span>` : ""))}
       </div>
       <p class="source">Sources for this table: ${["county", "flood", "elevation", "soil", "rain", "airport", "hardiness", "usda"].filter((k) => sourceKeysUsed(p).includes(k)).map((k) => `${esc(DATA_SOURCES[k].label)}: ${DATA_SOURCES[k].url ? `<a href="${esc(DATA_SOURCES[k].url)}" target="_blank" rel="noopener">${esc(DATA_SOURCES[k].name)}</a>` : esc(DATA_SOURCES[k].name)}, ${esc(sourceVintage(k, site))}`).join("; ")}.</p>`,
     internet: `
@@ -633,7 +636,7 @@ function openDetail(id) {
     roads: `
       <h3>Road access</h3>
       ${roadsHtml(site.roads)}
-      ${sourceHtml("roads", site)}`,
+      ${sourceHtml(roadSourceKey(site.roads), site)}`,
     climate: `
       <h3>Climate and solar</h3>
       ${climateHtml(site.climate, site.solar)}
@@ -670,7 +673,8 @@ function openDetail(id) {
   $("detail").innerHTML = `
     <div class="dlg-bar no-print">
       <div class="bar-group">
-        <button class="btn small" type="button" data-refresh="${esc(p.id)}" ${tipAttr("Look up all the public data for this spot again, since sources change.")}${busy ? " disabled" : ""}>${busy ? "Looking up..." : "Refresh data"}</button>
+        <button class="btn small" type="button" data-refresh="${esc(p.id)}" data-mode="missing" ${tipAttr("Look up only what is missing: lookups that failed last time, pieces that did not load, drive times that were estimated, and data added in newer versions of the app. What is already here is kept, which saves requests to the free services.")}${busy ? " disabled" : ""}>${busy ? "Looking up..." : "Refresh data"}</button>
+        <button class="btn small" type="button" data-refresh="${esc(p.id)}" data-mode="all" ${tipAttr("Look up all the public data for this spot again, since sources change. This asks every service again, so use it before a decision rather than every time.")}${busy ? " disabled" : ""}>Refresh all</button>
         <button class="btn small" type="button" data-print ${tipAttr("Print this report, or save it as a PDF from the print window.")}>Print</button>
         <button class="btn small" type="button" data-copy-summary="${esc(p.id)}" ${tipAttr("Copy a short plain-text summary of this parcel that you can paste into an email or message.")}>Copy summary</button>
         <button class="btn small" type="button" data-edit="${esc(p.id)}" ${tipAttr("Change this parcel's name, address, acres, price or location.")}${busy ? " disabled" : ""}>Edit</button>
@@ -687,7 +691,7 @@ function openDetail(id) {
     </div>
     <div class="dlg-body">
       <div class="print-only sub">Printed ${esc(new Date().toLocaleDateString())} from Homestead Land Screener. Data sources are listed at the end of the report.</div>
-      ${busy ? `<p class="notice no-print" role="status">Looking up data: ${lookupDone} of ${SOURCE_STEPS.length + 3 + (isTexasParcel(p) ? 1 : 0)} lookups finished. The report fills in as each one arrives.</p>` : ""}
+      ${busy ? `<p class="notice no-print" role="status">Looking up data: ${lookupDone} of ${lookupTotal} lookups finished. The report fills in as each one arrives.</p>` : ""}
       ${score.dealbreakers.length ? `<p class="notice bad"><strong>Dealbreakers:</strong> ${esc(score.dealbreakers.join("; "))}</p>` : ""}
       <div class="score-line"><span class="big">${scoreText(score.total)}</span><span class="sub">score &middot; ${score.factorsScored} of ${score.factorsTotal} of your criteria had data</span></div>
       <div class="table-scroll"><table class="summary-table"><thead><tr><th>${helpLabel("Criterion")}</th><th>${helpLabel("What we found")}</th><th class="num">${tipSpan("Score", "This criterion's score from 0 (worst) to 100 (best). \"no data\" means the lookup found nothing, so the criterion is skipped, not scored as zero.")}</th><th></th></tr></thead><tbody>${summaryRows}</tbody></table></div>
@@ -717,6 +721,7 @@ function openDetail(id) {
 let detailId = null;     // the parcel whose report is open, or null
 let lookingId = null;    // the parcel being looked up right now, or null
 let lookupDone = 0;      // how many of its lookups have finished
+let lookupTotal = 0;     // how many lookups this run will make
 let liveTimer = null;
 
 // What a section says when its data is missing: "Looking up now" during a lookup, otherwise how to fetch it.
@@ -766,13 +771,22 @@ function clearProgress(delayMs) {
   statusTimer = setTimeout(() => { $("status").hidden = true; $("status").innerHTML = ""; }, delayMs);
 }
 
-async function runLookups(parcel) {
+// `mode` is "all" (every lookup) or "missing" (only what failed or was never looked up; see planLookups).
+async function runLookups(parcel, mode = "all") {
   clearTimeout(statusTimer);
+  const plan = planLookups(parcel, mode, settings);
+  if (plan.nothingToDo) {
+    $("status").hidden = false;
+    $("status").innerHTML = `<strong>Nothing is missing for ${esc(parcel.name)},</strong> so no services were asked. Use Refresh all to look everything up again.`;
+    clearProgress(8000);
+    return;
+  }
   lookingId = parcel.id;
   lookupDone = 0;
-  $("status").innerHTML = `<strong style="font-size:.85rem">Looking up ${esc(parcel.name)}:</strong>`;
+  lookupTotal = plan.total;
+  $("status").innerHTML = `<strong style="font-size:.85rem">${mode === "all" ? "Looking up" : "Filling in what is missing for"} ${esc(parcel.name)}:</strong>`;
   try {
-    await lookupAll(parcel, showProgress);
+    await lookupAll(parcel, showProgress, mode, plan);
   } finally {
     lookingId = null;
   }
@@ -945,10 +959,10 @@ function loadDemo() {
   $("dlg-add").close();
 }
 
-async function refreshParcel(id) {
+async function refreshParcel(id, mode = "missing") {
   const p = parcels.find((x) => x.id === id);
   if (!p || lookingId) return;
-  const lookups = runLookups(p);
+  const lookups = runLookups(p, mode);
   if ($("dlg-detail").open) openDetail(id);   // redraw now so the buttons and notes show the lookup has started
   await lookups;
 }
@@ -1364,7 +1378,7 @@ document.addEventListener("click", (event) => {
   else if (el.dataset.copySummary) copySummary(el.dataset.copySummary);
   else if (el.dataset.close !== undefined) el.closest("dialog").close();
   else if (el.dataset.open) openDetail(el.dataset.open);
-  else if (el.dataset.refresh) refreshParcel(el.dataset.refresh);
+  else if (el.dataset.refresh) refreshParcel(el.dataset.refresh, el.dataset.mode);
   else if (el.dataset.delete) deleteParcel(el.dataset.delete);
   else if (el.dataset.edit) openEdit(el.dataset.edit);
   else if (el.dataset.saveNotes) saveNotes(el.dataset.saveNotes);

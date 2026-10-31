@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v2.3.0.
+> Last updated for v2.4.0.
 
 ## 1. Problem
 
@@ -53,7 +53,7 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R16 | USDA plant hardiness zone | Zone and minimum-temperature range from the 2023 USDA map data, looked up by ZIP code; labelled as ZIP-level; display only, not scored | `feature/hardiness-zone` |
 | R17 | Soil details | Texture, depth to bedrock and water table, flooding and ponding, shrink-swell, and building and road ratings for the main soil at the point; "not looked up" for parcels saved before the feature; display only | `feature/soil-details` |
 | R18 | Frost, climate and solar | Average last spring and first fall freeze, frost-free days, days over 100 F, snow, and full-sun hours with a rough solar output, from ten years of daily weather; labelled as a model, not a station; display only | `feature/climate-solar` |
-| R19 | Road access | Nearest road and nearest paved public road, with distance and surface; says it is not proof of legal access | `feature/road-access` |
+| R19 | Road access | Nearest road and nearest paved public road, with distance and surface; says it is not proof of legal access; since v2.4.0 with backup sources (see R60) | `feature/road-access` |
 | R20 | Wetlands | Whether the point is on a mapped wetland and how many are within about a quarter mile; says it is not a legal delineation | `feature/wetlands` |
 | R21 | Public and protected land | Nearest protected areas up to 25 miles, with manager and public-access level; areas with unknown access are left out | `feature/public-land` |
 | R22 | County property tax rate | Median real estate tax divided by median home value for the county (Census ACS 5-year); needs a free Census key, kept in the browser; a missing key is a message and not a failure; used in the cost estimate unless turned off | `feature/county-tax` |
@@ -93,6 +93,9 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R56 | Your criteria order everywhere | Each report opens with a table of the ticked criteria in your order (criterion, what was found, score and a bar); the parcel list shows the first three ticked criteria other than price and flood as columns after price, USDA and flood; the compare table lists the ticked criteria right after the score and dealbreakers, marks the best score, and leaves out the usual row that says the same thing | `feature/criteria-scoring-and-new-data` |
 | R57 | More from services already used | The flood request also reads FEMA's special flood hazard flag (it settles unusual zone labels) and base flood elevation, with how far the spot sits above or below it; the four elevation points give the direction the ground faces (or about flat under 1%); the soil layer request adds Ksat, shown as the slowest layer's permeability class in the top 5 feet; the risk index reply adds social vulnerability and community resilience ratings; the Texas parcel request returns the parcel outline (outer ring, at most 400 points), drawn on the map, while owner fields are still dropped | `feature/criteria-scoring-and-new-data` |
 | R58 | County disaster declarations | OpenFEMA declarations naming the county in the last 10 years: the count with each disaster counted once, the main kinds and the latest one, in More local conditions; fails on its own like the other pieces there | `feature/criteria-scoring-and-new-data` |
+| R59 | Roads survive trimmed geometry | Overpass marks road points cut off at the edge of the search box with null; the distance is measured only between real neighboring points, a road with none is skipped, and the lookup never fails on them | `feature/road-fallbacks-and-smart-refresh` |
+| R60 | Map server failover and road backups | An Overpass server that answers 429, 502, 503 or 504 rests for 5 minutes and one that fails another way for 2; resting servers are skipped, the server that worked last is tried first, and both are remembered in the browser across reloads (Clear data erases it); road access tries OpenStreetMap (20 seconds a server), then the Census TIGER roads (local roads to 3 km, highways to 10 km; only highways count as paved), then the OSRM nearest road (name and distance only); the report says which one answered and why; it fails only if all three do | `feature/road-fallbacks-and-smart-refresh` |
+| R61 | Refresh only what is missing | Refresh data keeps what is there and asks again only for lookups that failed last time, values never looked up (newer features), failed pieces of More local conditions and Texas details, drive times without a route, and a tax rate or county profile that waited for a Census key that is now set; a service that answered "nothing here" is not asked again; if nothing is missing no service is asked and the page says so; Refresh all looks everything up again; the report shows when missing data was filled in | `feature/road-fallbacks-and-smart-refresh` |
 
 ## 5. Scoring rules
 
@@ -123,7 +126,7 @@ Default: septic, airport, price, internet, slope and rain are ticked (the six fa
 | Hardiness zone | USDA 2023 map data via phzmapi.org | Looked up by ZIP code, so it can differ from the exact parcel; run by a volunteer, not an official USDA site |
 | Soil details | USDA Soil Data Access (four queries) | Main soil only; survey scale; ratings say how limited, not whether it can be done |
 | Climate, frost, solar | Open-Meteo archive (ERA5 model, 10 years) | Grid about 10 km wide, so low ground and hilltops can differ by weeks; solar output is a flat-panel rule of thumb |
-| Road access | OpenStreetMap via Overpass | Shows a road nearby, not legal access; private roads are often unmarked |
+| Road access | OpenStreetMap via Overpass; backups: Census TIGERweb roads, then OSRM nearest (both checked from the live site and a local copy on 2026-10-31) | Shows a road nearby, not legal access; private roads are often unmarked; TIGER has no surfaces and OSRM only the nearest road |
 | Wetlands | US Fish and Wildlife Service National Wetlands Inventory | Screening map, not a delineation; small or seasonal wetlands missed |
 | Public and protected land | USGS PAD-US (Public_Access layer) | Unknown-access areas left out; "open" does not mean any particular use is allowed |
 | County property tax rate | Census American Community Survey 5-year, tables B25103 and B25077 | Median for homes, so vacant land and farm exemptions can differ; needs a free key |
@@ -162,8 +165,8 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 
 ## 10. Testing
 
-- 150 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
-- 133 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
+- 165 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
+- 146 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
 - Live checks against real services are manual (see the tutorial).
 
 ## 11. What I would do next

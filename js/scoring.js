@@ -316,6 +316,12 @@ function glossaryTip(label) {
 /* ---- data sources (the table is DATA_SOURCES in config.js) ---- */
 
 // How old the data is. Some results carry their own date; otherwise the table's general wording is used.
+// Which DATA_SOURCES entry the road section came from: OpenStreetMap (also for parcels saved before backups existed),
+// the Census TIGER roads, or the OSRM nearest-road answer.
+function roadSourceKey(roads) {
+  return roads && roads.source === "tiger" ? "roadsTiger" : roads && roads.source === "osrm" ? "roadsOsrm" : "roads";
+}
+
 function sourceVintage(key, site) {
   site = site || {};
   const info = DATA_SOURCES[key];
@@ -354,7 +360,7 @@ function sourceKeysUsed(parcel) {
   if (has(site.hardiness)) used.push("hardiness");
   if (site.taxRate && site.taxRate.ratePct != null) used.push("taxRate");
   if (has(site.groundwater)) used.push("groundwater");
-  if (has(site.roads)) used.push("roads");
+  if (has(site.roads)) used.push(roadSourceKey(site.roads));
   if (has(site.wetlands)) used.push("wetlands");
   if (has(site.publicLand)) used.push("publicLand");
   if (site.usda) used.push("usda");

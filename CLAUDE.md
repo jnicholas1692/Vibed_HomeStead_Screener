@@ -1,6 +1,6 @@
 # Homestead Land Screener — project brief for Claude Code
 
-Owner: Jason Nicholas. Current version: **v2.3.0**. Read this first, then `README.md` (features, data sources, version history) and `SPEC.md` (numbered requirements R1–R50, scoring rules, architecture).
+Owner: Jason Nicholas. Current version: **v2.4.0**. Read this first, then `README.md` (features, data sources, version history) and `SPEC.md` (numbered requirements R1–R50, scoring rules, architecture).
 
 ## What it is
 A browser-only static site that scores rural land parcels from free public data. The first buyer (the owner) is looking for about 10 acres in central Texas within 2 hours of the San Antonio or Austin airports, but it works anywhere in the US. No backend, no accounts, no API keys, no build step. Data is saved in the browser (localStorage).
@@ -20,7 +20,7 @@ Plain HTML, CSS and vanilla JavaScript; Leaflet (loaded from unpkg) for the map.
 - `js/ui.js` — rendering, dialogs, tooltips, report, compare table
 - `css/styles.css`
 - `tests/` — Node unit tests (`node --test`), with `tests/load.js` loading the browser scripts in a `vm` and providing `fakeFetch`
-- `test_site.py` — Playwright browser suite (133 checks) with every outside service faked. Committed since v2.2.1 (the older ~297-check version was never committed and is lost). Run it before releases. It starts its own server on port 8765, so make sure no stale server is holding that port.
+- `test_site.py` — Playwright browser suite (146 checks) with every outside service faked. Committed since v2.2.1 (the older ~297-check version was never committed and is lost). Run it before releases. It starts its own server on port 8765, so make sure no stale server is holding that port.
 
 ## Scoring (v2.3+)
 Criteria you tick (`settings.criteria = { order, on }`, keys of `FACTOR_LABELS`): septic, airport, price, internet, slope, rain (ticked by default), plus flood risk, groundwater depth, natural hazard rating, hospital drive, grocery drive (unticked by default). The total is the plain average of ticked criteria with data; missing data is skipped, never zero. Your order drives the report summary table, the first 3 list columns (`LIST_CRITERIA_COLUMNS`) and the top of the compare table. Each criterion has a dealbreaker switch that works even when unticked. Septic: not limited 100, somewhat 60, very limited 15. The old 10-point skill tree (and older weights) is converted once in `storage.js` via `criteriaFromPoints`. Hunting was removed in v2.1.0.
@@ -52,15 +52,17 @@ TxGIO parcels (identify request), TWDB groundwater conservation districts and we
 4. Release flow on the owner's PC: `npm test`, `git add -A`, `git commit`, `git pull --rebase`, `git push`; Pages updates a minute or two after the push.
 
 ## Testing before any release
-- `npm test` → 150 unit tests, must all pass (also runs in GitHub Actions).
-- `python test_site.py` (needs Playwright and Chromium, installed on the owner's PC) → 133/133 on v2.3.0.
+- `npm test` → 165 unit tests, must all pass (also runs in GitHub Actions).
+- `python test_site.py` (needs Playwright and Chromium, installed on the owner's PC) → 146/146 on v2.4.0.
 - After shipping, spot-check the live site in a real browser; mocked tests cannot prove a real service still answers.
 
 ## Known gaps and ideas
 - County/hardiness "Request failed" and public-land timeouts seen intermittently in the real browser.
+- Overpass on 2026-10-31: overpass-api.de answered 502 "at capacity", kumi.systems and private.coffee hung past 30 s, openstreetmap.fr worked; overpass.osm.jp blocks browser requests and maps.mail.ru hung, so neither was added. Road failures were mostly a bug (null points in `out geom(box)` replies), fixed in v2.4.0. Nearby places still have no backup source when every Overpass server fails.
 - Compare table is not grouped into categories (only the per-parcel report is).
 - Tutorial document (Claude Docs project `385d0a6c-076f-42cc-9074-dbfb01b1895a`) stops at v1.5.0.
 - Ideas from SPEC: small caching proxy, county parcel boundaries, newer FCC broadband data, import listings from a saved search.
+- Added as road backups in v2.4.0 (checked live): Census TIGERweb Transportation layers 2, 6 and 8; OSRM `nearest`.
 - Checked from the live site on 2026-10-31 and left out: CMS hospital data (blocks browser requests); Urban Institute schools (ignores the county filter, so the smallest query is all of a state: about 9,700 rows, 19 s). OpenFEMA declarations answered and were added.
 - Sources deliberately not added: those needing API keys (NREL, NASS, FBI, AirNow, HUD, BEA, EIA), bulk-download-only data (HRSA, BTS), and county appraisal tax rates (no API).
 

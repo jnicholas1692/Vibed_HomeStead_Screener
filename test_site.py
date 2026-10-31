@@ -55,6 +55,7 @@ ALLOWED_HOSTS = {
     "api.census.gov", "fwspublicservices.wim.usgs.gov", "rdgdwe.sc.egov.usda.gov",
     "api.waterdata.usgs.gov", "api.weather.gov", "power.larc.nasa.gov", "echodata.epa.gov",
     "feature.geographic.texas.gov", "services.twdb.texas.gov", "gis.rrc.texas.gov", "www.fema.gov",
+    "tigerweb.geo.census.gov",
 }
 
 # The smallest valid PNG (one clear pixel), handed back for map tiles.
@@ -164,6 +165,11 @@ def fake_service(url, post_body, mode):
             "geometry": {"coordinates": [LON, LAT]},
             "properties": {"countrycode": "US", "housenumber": "100", "street": "Main Street",
                            "city": "Blanco", "state": "Texas", "postcode": "78606"}}]})
+    if host == "tigerweb.geo.census.gov":
+        # The Census TIGER roads, the first backup when the OpenStreetMap servers (all down in this test) fail.
+        road = {"attributes": {"NAME": "E Main St", "MTFCC": "S1200"},
+                "geometry": {"paths": [[[LON - 0.001, LAT + 0.0005], [LON + 0.001, LAT + 0.0005]]]}}
+        return json_reply({"features": [road] if "/MapServer/6/" in url else []})
     if host == "www.fema.gov":
         # OpenFEMA disaster declarations for the county (two disasters, one listed twice).
         return json_reply({"DisasterDeclarationsSummaries": [
@@ -428,6 +434,41 @@ def test_criteria(b):
     # Back to the defaults for the rest of the tests (the Census key is kept).
     open_settings(page, "scoring")
     page.click("#btn-reset-criteria")
+
+
+def test_road_backup_and_refresh(b):
+    section("Road backup, and refreshing only what is missing")
+    page = b.page
+    page.click("#list .row-name")
+    page.wait_for_selector("#dlg-detail[open]")
+    detail = page.text_content("#detail")
+    check("roads come from the Census backup when OpenStreetMap is down", "E Main St" in detail and "TIGER" in detail)
+    check("the report says why the backup was used", "OpenStreetMap servers were busy" in detail)
+    failed_note = page.evaluate("() => [...document.querySelectorAll('#detail .notice')].map((n) => n.textContent).find((t) => t.includes('Some lookups failed')) || ''")
+    check("other lookups did fail in this test", "Internet:" in failed_note)
+    check("Road access is not listed as a failed lookup", "Roads:" not in failed_note, failed_note[:200])
+    check("there is a Refresh all button", page.locator("[data-refresh][data-mode=all]").count() == 1)
+
+    # Refresh data: only the lookups that failed (internet, rain, places and others in this test) are asked again.
+    seen = len(b.requests)
+    page.click("[data-refresh][data-mode=missing]")
+    wait_for_report(page)
+    asked = {urlparse(u).hostname for u in b.requests[seen:]}
+    check("Refresh data asks a service that failed before (FCC internet)", "geo.fcc.gov" in asked, str(sorted(asked)))
+    check("Refresh data does not ask the flood map again", "hazards.fema.gov" not in asked, str(sorted(asked)))
+    check("Refresh data does not ask the elevation service again", "epqs.nationalmap.gov" not in asked)
+    check("Refresh data does not ask the Texas parcel service again", "feature.geographic.texas.gov" not in asked)
+    check("the report shows when missing data was filled in", "missing data filled in" in page.text_content("#detail"))
+    check("the data that was already there is kept", "1200 ft" in page.text_content("#detail") and "Blanco ISD" in page.text_content("#detail"))
+
+    # Refresh all asks everything again.
+    seen = len(b.requests)
+    page.click("[data-refresh][data-mode=all]")
+    wait_for_report(page)
+    asked = {urlparse(u).hostname for u in b.requests[seen:]}
+    check("Refresh all asks every service again", {"hazards.fema.gov", "epqs.nationalmap.gov", "feature.geographic.texas.gov"} <= asked, str(sorted(asked)))
+    check("Refresh all clears the filled-in note", "missing data filled in" not in page.text_content("#detail"))
+    close_dialog(page, "dlg-detail")
 
 
 def test_criteria_order_shows(b):
@@ -706,7 +747,8 @@ def main():
             # These run in order on one browser profile: settings first, so the Census key is set
             # before the parcel is looked up.
             for test in [test_page_and_footer, test_static_hover_help, test_settings, test_criteria, test_add_errors,
-                         test_address_suggestions, test_full_report, test_criteria_order_shows, test_export,
+                         test_address_suggestions, test_full_report, test_road_backup_and_refresh,
+                         test_criteria_order_shows, test_export,
                          test_demo_list_compare, test_clear_data]:
                 try:
                     test(b)

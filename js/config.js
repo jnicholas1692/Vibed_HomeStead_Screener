@@ -2,8 +2,11 @@
 
 // The version shown in the page footer and the day it was released. Change both with every release,
 // along with "version" in package.json and the README version history (tests/version.test.js checks they agree).
-const APP_VERSION = "2.3.0";
+const APP_VERSION = "2.4.0";
 const APP_UPDATED = "2026-10-31";   // year-month-day
+
+// Where sources.js keeps which map server worked last and which are resting (Clear data erases it too).
+const OVERPASS_MEMORY_KEY = "homestead-screener.overpass.v1";
 
 // Where to sign up for the free Census API key used for the county tax rate and county profile.
 const CENSUS_KEY_SIGNUP_URL = "https://api.census.gov/data/key_signup.html";
@@ -302,6 +305,8 @@ const DATA_SOURCES = {
   hazards:      { label: "Natural hazards",          name: "FEMA National Risk Index (census tracts)",               url: "https://hazards.fema.gov/nri/",                            vintage: "current National Risk Index release" },
   hardiness:    { label: "Plant hardiness zone",     name: "USDA Plant Hardiness Zone Map (through phzmapi.org)",    url: "https://planthardiness.ars.usda.gov/",                     vintage: "USDA map" },
   taxRate:      { label: "County property tax rate", name: "US Census Bureau American Community Survey, 5-year estimates", url: "https://www.census.gov/programs-surveys/acs",        vintage: "ACS 5-year release" },
+  roadsTiger:   { label: "Road access (backup)",     name: "US Census Bureau TIGER roads (TIGERweb map service)",     url: "https://tigerweb.geo.census.gov/", vintage: "current TIGER roads; no surface is recorded, so only highways count as paved" },
+  roadsOsrm:    { label: "Road access (backup)",     name: "OSRM public routing server, nearest road on OpenStreetMap roads", url: "https://project-osrm.org/", vintage: "nearest road only; no surface or paved road" },
   roads:        { label: "Road access",              name: "OpenStreetMap through the Overpass API",                 url: "https://www.openstreetmap.org/copyright",                  vintage: "current OpenStreetMap data" },
   wetlands:     { label: "Wetlands",                 name: "US Fish and Wildlife Service National Wetlands Inventory", url: "https://www.fws.gov/program/national-wetlands-inventory", vintage: "current NWI map (mapping dates vary by area)" },
   publicLand:   { label: "Public and protected land", name: "USGS Protected Areas Database of the US (PAD-US)",      url: "https://www.usgs.gov/programs/gap-analysis-project/science/pad-us-data-overview", vintage: "current PAD-US release" },
@@ -336,7 +341,7 @@ const GLOSSARY = {
   "Average yearly rain": { source: "rain", text: "Average rain in inches a year, worked out from several recent years of daily weather model data. The model grid is about 10 km wide, so a single lot can differ." },
   "Nearest airport": { source: "airport", text: "Closest airport on the app's list. Shows the road distance and drive time when a route could be found, otherwise a straight-line distance and an estimated drive time." },
   "Plant hardiness zone": { source: "hardiness", text: "USDA zone based on the average coldest winter night. Each zone is 10 F wide and split into halves (a and b) of 5 F. A higher number means milder winters. Looked up by ZIP code, so it can differ a little at your lot." },
-  "Data fetched": { text: "When the app last looked up this parcel's data. Public data changes, so use Refresh data before a decision." },
+  "Data fetched": { text: "When the app last looked up all of this parcel's data, and when Refresh data last filled in what was missing. Public data changes, so use Refresh all before a decision." },
   // ---- climate and solar ----
   "Last spring freeze (average)": { source: "climate", text: "Average date of the last day in spring with a low of 32 F (0 C) or colder, across the years shown. Frost can come later in some years, so ask your county extension office for planting dates." },
   "First fall freeze (average)": { source: "climate", text: "Average date of the first day in fall with a low of 32 F (0 C) or colder, across the years shown." },
