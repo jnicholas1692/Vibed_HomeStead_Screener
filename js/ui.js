@@ -1204,16 +1204,113 @@ function showSettingsTab(name) {
   for (const panel of document.querySelectorAll("#criteria-fields [data-panel]")) panel.hidden = panel.dataset.panel !== name;
 }
 
+// The label for a setting's number box, from SCORING_FIELDS.
+const fieldLabel = (path) => (SCORING_FIELDS.find(([, p]) => p === path) || [path])[0];
+
+// Where a value sits on a slider, as a percent of its width (for the colored track).
+const sliderPercent = (value, min, max) => (max > min ? Math.max(0, Math.min(100, (value - min) / (max - min) * 100)) : 0);
+
+// One scoring range as a slider with two thumbs, plus its two number boxes. The left thumb and box hold the smaller
+// number. For "lower is better" (price, slope, drive times) that is the full-marks end; for "higher is better"
+// (rain, internet) it is the zero end. Both thumbs and boxes stay in step (see syncRangePair).
+function rangePairHtml(pair) {
+  const [loPath, hiPath] = pair.better === "lower" ? [pair.good, pair.bad] : [pair.bad, pair.good];
+  const lo = getPath(settings, loPath), hi = getPath(settings, hiPath);
+  const max = Math.max(pair.max, lo, hi);   // a saved value beyond the usual end stretches the slider
+  const box = (path) => `<label>${SETTING_TIPS[path] ? tipSpan(fieldLabel(path), SETTING_TIPS[path]) : esc(fieldLabel(path))}<input data-path="${path}" inputmode="decimal" value="${esc(getPath(settings, path))}"></label>`;
+  const thumb = (which, value, path) => `<input type="range" class="dual-${which}" min="${pair.min}" max="${max}" step="${pair.step}" value="${esc(value)}" aria-label="${esc(fieldLabel(path))}">`;
+  const tip = `Drag the two ends. ${pair.better === "lower" ? "At or below the left end" : "At or above the right end"} scores 100 (green), ${pair.better === "lower" ? "at or above the right end" : "at or below the left end"} scores 0 (red), and values in between score evenly. You can also type exact numbers in the boxes.`;
+  return `<div class="range-pair wide" data-pair="${pair.key}">
+      <div class="range-head"><strong>${tipSpan(`${pair.title} (${pair.unit})`, tip)}</strong><span class="sub range-rec" data-rec="${pair.key}"></span></div>
+      <div class="dual ${pair.better}" style="--lo:${sliderPercent(lo, pair.min, max)}%;--hi:${sliderPercent(hi, pair.min, max)}%">${thumb("lo", lo, loPath)}${thumb("hi", hi, hiPath)}</div>
+      <div class="range-boxes">${box(loPath)}${box(hiPath)}</div>
+    </div>`;
+}
+
+// Keeps a slider and its two number boxes in step after the person moved `moved` (a thumb or a box).
+// The thumbs may not cross: the one being dragged pushes the other along, one step apart.
+function syncRangePair(block, moved) {
+  const pair = RANGE_PAIRS.find((p) => p.key === block.dataset.pair);
+  const [loBox, hiBox] = block.querySelectorAll("input[data-path]");
+  const [loThumb, hiThumb] = block.querySelectorAll("input[type=range]");
+  let lo, hi;
+  if (moved === loThumb || moved === hiThumb) {
+    lo = Number(loThumb.value); hi = Number(hiThumb.value);
+    if (lo > hi - pair.step) {
+      if (moved === loThumb) hi = Math.min(Number(hiThumb.max), lo + pair.step); else lo = Math.max(pair.min, hi - pair.step);
+      if (lo > hi - pair.step) lo = hi - pair.step;   // pushed against the end of the slider
+    }
+    // Round away the tiny errors that adding decimal steps can leave (0.1 + 0.2 is 0.30000000000000004 in JavaScript).
+    const tidy = (v) => Math.round(v * 1000) / 1000;
+    loBox.value = String(tidy(lo)); hiBox.value = String(tidy(hi));
+  } else {
+    lo = parseNumber(loBox.value); hi = parseNumber(hiBox.value);
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return;   // half-typed; the save checks it later
+    const max = Math.max(pair.max, lo, hi);                      // stretch the slider to show a number beyond its end
+    loThumb.max = hiThumb.max = String(max);
+  }
+  loThumb.value = String(lo); hiThumb.value = String(hi);
+  const dual = block.querySelector(".dual");
+  dual.style.setProperty("--lo", `${sliderPercent(lo, pair.min, Number(loThumb.max))}%`);
+  dual.style.setProperty("--hi", `${sliderPercent(hi, pair.min, Number(hiThumb.max))}%`);
+}
+
+let usesDraft = {};   // the land uses being edited; saved with the Save button
+
+// A slider value with its unit: "$100,000", "5%", "30 in/year", "45 min".
+function rangeValueText(pair, value) {
+  if (pair.unit === "$") return money(value);
+  return pair.unit === "%" ? `${value}%` : `${value} ${pair.unit}`;
+}
+
+// Shows the recommended range under each slider for the ticked uses, and which criteria they suggest.
+function updateRecommendations() {
+  const recs = recommendedRanges(usesDraft);
+  const any = Object.values(usesDraft).some(Boolean);
+  for (const pair of RANGE_PAIRS) {
+    const el = $("criteria-fields").querySelector(`[data-rec="${pair.key}"]`);
+    if (!el) continue;
+    const rec = recs[pair.key];
+    el.textContent = rec ? `Recommended: full marks at ${rangeValueText(pair, rec[0])}, zero at ${rangeValueText(pair, rec[1])}`
+      : any ? "No recommendation: set it for your own needs" : "";
+  }
+  const suggested = suggestedCriteria(usesDraft);
+  $("c-use-summary").textContent = any
+    ? `For ${usesText(usesDraft)}, these criteria matter most: ${suggested.map((key) => FACTOR_LABELS[key]).join(", ")}.`
+    : "Tick what you plan to do, and the app suggests ranges and criteria for it.";
+  $("c-apply-recommended").disabled = !any;
+  $("c-tick-suggested").disabled = !any;
+}
+
+// Moves each slider that has a recommendation to it. Nothing is saved until Save settings.
+function applyRecommendations() {
+  const recs = recommendedRanges(usesDraft);
+  for (const [key, [good, bad]] of Object.entries(recs)) {
+    const pair = RANGE_PAIRS.find((p) => p.key === key);
+    const block = $("criteria-fields").querySelector(`.range-pair[data-pair="${key}"]`);
+    block.querySelector(`input[data-path="${pair.good}"]`).value = String(good);
+    block.querySelector(`input[data-path="${pair.bad}"]`).value = String(bad);
+    syncRangePair(block, null);
+  }
+}
+
 function numberBoxes(fields) {
   return fields.map(([label, path]) =>
     `<label>${SETTING_TIPS[path] ? tipSpan(label, SETTING_TIPS[path]) : esc(label)}<input data-path="${path}" inputmode="decimal" value="${esc(getPath(settings, path))}"></label>`).join("");
 }
 
 function openCriteria() {
+  usesDraft = { ...DEFAULT_SETTINGS.uses, ...settings.uses };
   criteriaDraft = normalizeCriteria(settings.criteria);
   dealDraft = { ...settings.dealbreakers };
   $("criteria-fields").innerHTML = `
     <div class="tab-panel" id="panel-scoring" role="tabpanel" aria-labelledby="tab-scoring" data-panel="scoring">
+      <div class="stack uses-block">
+        <strong>${tipSpan("What will you use the land for?", "Tick one or more. The app then suggests ranges for the sliders below and criteria worth ticking. They are rules of thumb for screening, not standards, and nothing changes until you press a button below and then Save settings.")}</strong>
+        <div class="use-list">${Object.entries(LAND_USES).map(([key, use]) => `<label class="check"><input type="checkbox" data-use="${key}"${usesDraft[key] ? " checked" : ""}> ${tipSpan(use.label, use.tip)}</label>`).join("")}</div>
+        <p class="hint" id="c-use-summary" role="status"></p>
+        <div class="bar-group"><button class="btn small" type="button" id="c-apply-recommended">Use recommended values</button><button class="btn small" type="button" id="c-tick-suggested">Tick suggested criteria</button></div>
+      </div>
       <div class="stack">
         <div class="tree-head"><strong>${tipSpan("Your criteria", "Tick what matters to you. Every ticked criterion counts the same toward the 0 to 100 score. The order is the order they appear in each report's summary, in the list columns and in the compare table.")}</strong><span class="points-left" id="c-criteria-count" role="status"></span></div>
         <p class="hint">Tick the criteria that matter most to you. Each ticked one counts the same, and one with no data for a parcel is skipped, not counted as zero. Drag a row by the dots on its left, or use Up and Down, to set the order they are shown in. The first ${LIST_CRITERIA_COLUMNS} (besides price and flood) also become columns in the parcel list. Turn on Dealbreaker to rule a parcel out completely when that criterion is at its worst.</p>
@@ -1221,7 +1318,8 @@ function openCriteria() {
       </div>
       <div class="fields">
         <p class="hint wide">These ranges are starting points, not rules. Rainfall, price and slope that count as good vary a lot across the US (for example, 15 inches of rain a year is dry in Georgia but normal in Nevada), so set them for the region you are searching.</p>
-        ${numberBoxes(SCORING_FIELDS)}
+        ${RANGE_PAIRS.map(rangePairHtml).join("")}
+        ${numberBoxes(SCORING_FIELDS.filter(([, path]) => !RANGE_PAIRS.some((p) => p.good === path || p.bad === path)))}
         <label class="wide">Which airports count?
           <select id="c-airport-mode">
             <option value="auto">The nearest major US airport (default)</option>
@@ -1255,6 +1353,7 @@ function openCriteria() {
       </div>
     </div>`;
   renderCriteriaList();
+  updateRecommendations();
   orderDraft = normalizeReportOrder(settings.reportOrder);
   renderOrderList();
   $("c-airport-mode").value = settings.airportMode;
@@ -1302,6 +1401,7 @@ function saveCriteria(event) {
     return;
   }
   next.criteria = normalizeCriteria(criteriaDraft);
+  next.uses = { ...usesDraft };
   next.dealbreakers = { ...dealDraft };
   const ranges = [["priceTarget", "priceMax"], ["slopeIdeal", "slopeMax"], ["rainFull", "rainZero"], ["airportFullMin", "airportMaxMin"],
     ["internetFullMbps", "internetZeroMbps"], ["groundwaterFullFt", "groundwaterZeroFt"], ["hospitalFullMin", "hospitalMaxMin"], ["groceryFullMin", "groceryMaxMin"]];
@@ -1504,7 +1604,18 @@ $("form-criteria").addEventListener("keydown", (event) => {
   showSettingsTab(next.dataset.tab);
   next.focus();
 });
+// Dragging a thumb or typing in a box moves its partner.
+$("criteria-fields").addEventListener("input", (event) => {
+  const block = event.target.closest(".range-pair");
+  if (block) syncRangePair(block, event.target);
+});
 $("criteria-fields").addEventListener("click", (event) => {
+  if (event.target.id === "c-apply-recommended") { applyRecommendations(); return; }
+  if (event.target.id === "c-tick-suggested") {
+    for (const key of suggestedCriteria(usesDraft)) criteriaDraft.on[key] = true;
+    renderCriteriaList();
+    return;
+  }
   const cmove = event.target.closest("[data-cmove]");
   if (cmove) { moveCriterion(cmove.dataset.key, cmove.dataset.cmove); return; }
   const move = event.target.closest("[data-move]");
@@ -1514,6 +1625,7 @@ $("criteria-fields").addEventListener("click", (event) => {
 // Choosing a preset airport adds its line to the text box.
 $("criteria-fields").addEventListener("change", (event) => {
   if (event.target.dataset.deal) { dealDraft[event.target.dataset.deal] = event.target.checked; return; }
+  if (event.target.dataset.use) { usesDraft[event.target.dataset.use] = event.target.checked; updateRecommendations(); return; }
   if (event.target.dataset.crit) {
     criteriaDraft.on[event.target.dataset.crit] = event.target.checked;
     event.target.closest("li").classList.toggle("active", event.target.checked);

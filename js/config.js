@@ -2,7 +2,7 @@
 
 // The version shown in the page footer and the day it was released. Change both with every release,
 // along with "version" in package.json and the README version history (tests/version.test.js checks they agree).
-const APP_VERSION = "2.4.0";
+const APP_VERSION = "2.5.0";
 const APP_UPDATED = "2026-10-31";   // year-month-day
 
 // Where sources.js keeps which map server worked last and which are resting (Clear data erases it too).
@@ -35,6 +35,8 @@ const DEFAULT_SETTINGS = {
   groundwaterFullFt: 50, groundwaterZeroFt: 400, // depth to water at the nearest monitoring well; shallower is cheaper to reach
   hospitalFullMin: 20, hospitalMaxMin: 60,       // drive minutes to the nearest hospital with an emergency room
   groceryFullMin: 15, groceryMaxMin: 45,         // drive minutes to the nearest supermarket
+  // What you plan to do on the land (keys of LAND_USES). Ticking uses shows recommended ranges in Settings; nothing changes until you apply them.
+  uses: { homestead: false, farm: false, garden: false, livestock: false, residential: false },
   censusKey: "",                                 // optional free Census API key, needed for the county tax rate
   // Placeholders for the rough cost estimate. Replace them with real quotes for the area you are searching.
   costs: {
@@ -459,6 +461,61 @@ const FACTOR_TIPS = {
   "Grocery drive": (s) => `Drive time to the nearest supermarket, from OpenStreetMap. Scores 100 at ${s.groceryFullMin} minutes or less and 0 at ${s.groceryMaxMin} minutes or more. Rural stores are often missing from the map, so check.`,
 };
 
+/* ---- Settings > Scoring: the two-ended sliders ---- */
+
+// Each scoring range as one slider with two thumbs. `good` is the setting that scores 100 and `bad` the one that scores 0.
+// `better` says which way is good: "lower" (cheaper, flatter, closer) or "higher" (more rain, faster internet).
+// `min`, `max` and `step` set the slider; a typed number outside them still works, and the slider stretches to show it.
+const RANGE_PAIRS = [
+  { key: "price", title: "Price", unit: "$", good: "priceTarget", bad: "priceMax", better: "lower", min: 0, max: 1000000, step: 5000 },
+  { key: "slope", title: "Slope", unit: "%", good: "slopeIdeal", bad: "slopeMax", better: "lower", min: 0, max: 40, step: 0.5 },
+  { key: "rain", title: "Rainfall", unit: "in/year", good: "rainFull", bad: "rainZero", better: "higher", min: 0, max: 80, step: 1 },
+  { key: "airport", title: "Airport drive", unit: "min", good: "airportFullMin", bad: "airportMaxMin", better: "lower", min: 0, max: 300, step: 5 },
+  { key: "internet", title: "Internet speed", unit: "Mbps", good: "internetFullMbps", bad: "internetZeroMbps", better: "higher", min: 0, max: 500, step: 1 },
+  { key: "groundwater", title: "Groundwater depth", unit: "ft", good: "groundwaterFullFt", bad: "groundwaterZeroFt", better: "lower", min: 0, max: 1000, step: 10 },
+  { key: "hospital", title: "Hospital drive", unit: "min", good: "hospitalFullMin", bad: "hospitalMaxMin", better: "lower", min: 0, max: 180, step: 5 },
+  { key: "grocery", title: "Grocery drive", unit: "min", good: "groceryFullMin", bad: "groceryMaxMin", better: "lower", min: 0, max: 120, step: 5 },
+];
+
+/* ---- What you plan to do on the land, and the ranges that suit it ---- */
+
+// Each use has a label, a hover explanation, recommended ranges as [full marks, zero] (keys of RANGE_PAIRS),
+// and the criteria worth ticking for it. These are rules of thumb for screening, not standards: a soil scientist,
+// the county extension office and local farmers know the area far better.
+// Price and airport drive are left out on purpose: they depend on your budget and travel, not on the use.
+const LAND_USES = {
+  homestead: {
+    label: "Homestead",
+    tip: "A home plus food you grow or raise yourself: a garden, some animals, a well and a septic system.",
+    ranges: { slope: [5, 20], rain: [30, 15], groundwater: [100, 400], internet: [50, 5], hospital: [30, 60], grocery: [20, 45] },
+    criteria: ["septic", "slope", "rain", "groundwater", "flood", "price", "hospital", "grocery"],
+  },
+  farm: {
+    label: "Farm (crops or hay)",
+    tip: "Growing crops or hay on most of the land. Flat ground erodes less and is easier to work with machines, and more rain (or a good well for irrigation) means bigger harvests.",
+    ranges: { slope: [3, 12], rain: [35, 18], groundwater: [50, 300], hospital: [45, 90], grocery: [30, 60] },
+    criteria: ["slope", "rain", "groundwater", "flood", "price", "hazards"],
+  },
+  garden: {
+    label: "Small vegetable garden",
+    tip: "A kitchen garden. It needs only a small, fairly flat sunny patch, and dry areas can make up for rain with a well or rain barrels.",
+    ranges: { slope: [6, 20], rain: [30, 15], groundwater: [150, 500] },
+    criteria: ["rain", "slope", "flood"],
+  },
+  livestock: {
+    label: "Backyard livestock",
+    tip: "Chickens, goats, a few sheep or pigs. They cope with slopes better than crops do, but need dependable water and some pasture.",
+    ranges: { slope: [10, 30], rain: [30, 15], groundwater: [100, 400], hospital: [30, 60] },
+    criteria: ["groundwater", "rain", "slope", "flood"],
+  },
+  residential: {
+    label: "Residential home",
+    tip: "Mainly a house to live in. A buildable site, a working septic system, internet fast enough to work from home (the FCC's broadband benchmark is 100 Mbps down) and short drives to stores and a hospital matter most.",
+    ranges: { slope: [8, 25], internet: [100, 10], groundwater: [200, 600], hospital: [20, 45], grocery: [10, 30] },
+    criteria: ["septic", "internet", "hospital", "grocery", "airport", "price", "flood", "hazards"],
+  },
+};
+
 // Explanations for the boxes in Settings, keyed by the setting's name.
 const SETTING_TIPS = {
   priceTarget: "Asking price at or below this scores 100 for the Price factor.",
@@ -515,6 +572,8 @@ const UI_TIPS = {
   "f-price": "Asking price in US dollars. It feeds the Price score and the cost estimates.",
   "btn-pick": "Close this window and click the map to set the location.",
   "btn-reset-criteria": "Put every setting back to its starting value right away and close Settings. Your Census API key is kept.",
+  "c-apply-recommended": "Move every slider to the recommended range for the uses you ticked. Price and airport drive are left as they are. Nothing is saved until you press Save settings.",
+  "c-tick-suggested": "Tick the criteria that matter for the uses you ticked, and leave the rest as they are. Nothing is saved until you press Save settings.",
   "tab-scoring": "Spend your 10 points and set dealbreakers and the ranges that decide each score.",
   "tab-costs": "Placeholder numbers for the rough cost estimate and the home loan comparison.",
   "tab-layout": "Choose the order of the sections in each parcel's report.",

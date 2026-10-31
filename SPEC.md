@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v2.4.0.
+> Last updated for v2.5.0.
 
 ## 1. Problem
 
@@ -96,6 +96,8 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R59 | Roads survive trimmed geometry | Overpass marks road points cut off at the edge of the search box with null; the distance is measured only between real neighboring points, a road with none is skipped, and the lookup never fails on them | `feature/road-fallbacks-and-smart-refresh` |
 | R60 | Map server failover and road backups | An Overpass server that answers 429, 502, 503 or 504 rests for 5 minutes and one that fails another way for 2; resting servers are skipped, the server that worked last is tried first, and both are remembered in the browser across reloads (Clear data erases it); road access tries OpenStreetMap (20 seconds a server), then the Census TIGER roads (local roads to 3 km, highways to 10 km; only highways count as paved), then the OSRM nearest road (name and distance only); the report says which one answered and why; it fails only if all three do | `feature/road-fallbacks-and-smart-refresh` |
 | R61 | Refresh only what is missing | Refresh data keeps what is there and asks again only for lookups that failed last time, values never looked up (newer features), failed pieces of More local conditions and Texas details, drive times without a route, and a tax rate or county profile that waited for a Census key that is now set; a service that answered "nothing here" is not asked again; if nothing is missing no service is asked and the page says so; Refresh all looks everything up again; the report shows when missing data was filled in | `feature/road-fallbacks-and-smart-refresh` |
+| R62 | Two-ended sliders | Each of the eight scoring ranges (price, slope, rain, airport drive, internet, groundwater depth, hospital drive, grocery drive) is one slider with two thumbs above its two number boxes; moving a thumb changes its box and typing in a box moves its thumb; the thumbs cannot cross (the one being moved pushes the other one step along); a typed number past the slider's end stretches the slider; the track is green where a value scores 100 and red where it scores 0; each thumb has a screen-reader label and works with the arrow keys; Settings has no sideways scrolling, also at phone width | `feature/range-sliders-and-land-uses` |
+| R63 | Recommended values by land use | Settings > Scoring asks what the land is for (homestead, farm, small vegetable garden, backyard livestock, residential home) with tick boxes saved in the browser; ticked uses show a recommended range with its unit under each slider they have a view on ("No recommendation" for the rest, including price and airport drive), and the criteria worth ticking; Use recommended values moves the sliders and Tick suggested criteria ticks those criteria, and nothing is saved until Save settings; with several uses the stricter value of each range wins | `feature/range-sliders-and-land-uses` |
 
 ## 5. Scoring rules
 
@@ -106,6 +108,7 @@ Default: septic, airport, price, internet, slope and rain are ticked (the six fa
 - Each criterion maps to 0 to 100 between a "full marks" value and a "zero" value (for example price: full marks at or below $100,000, zero at or above $150,000). Fixed scales: septic Not limited 100, Somewhat limited 60, Very limited 15; flood zone X 100, shaded X 50, high risk 0; FEMA overall rating Very Low 100 down to Very High 0 in steps of 25.
 - The total is the plain average of the ticked criteria that have data.
 - Missing data removes the criterion from the average; it never counts as zero.
+- Recommended ranges per land use (in `LAND_USES`, config.js) are screening rules of thumb, not standards: for example cropland is best under about 3% slope and poor above 12%, a home site is fine to about 8% and hard above 25%, and a residential home with remote work wants the FCC's 100 Mbps broadband benchmark. They change nothing until applied.
 - **[YOUR CALL: why skip instead of scoring zero?]** Suggested reasoning: a failed lookup says nothing about the land, so penalising it would rank parcels by server luck.
 - The defaults reflect a Texas search. Rain, price and slope thresholds vary by region and the app tells the user to reset them.
 
@@ -165,8 +168,8 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 
 ## 10. Testing
 
-- 165 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
-- 146 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
+- 170 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
+- 170 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
 - Live checks against real services are manual (see the tutorial).
 
 ## 11. What I would do next

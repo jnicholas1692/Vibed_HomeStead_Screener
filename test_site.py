@@ -393,6 +393,75 @@ def test_settings(b):
     close_dialog(page, "dlg-criteria")
 
 
+def test_sliders_and_uses(b):
+    section("Two-ended sliders, and recommended values for what the land is for")
+    page = b.page
+    open_settings(page, "scoring")
+    box = lambda path: page.input_value(f'input[data-path="{path}"]')
+    thumb = lambda pair, which: page.locator(f'.range-pair[data-pair="{pair}"] input.dual-{which}')
+    check("every scoring range has a slider with two thumbs", page.locator(".range-pair").count() == 8
+          and page.locator(".range-pair input[type=range]").count() == 16)
+    check("each thumb is labelled for screen readers", thumb("slope", "lo").get_attribute("aria-label") == "Slope: full marks at or below (%)")
+    check("the boxes start at the saved values", box("slopeIdeal") == "5" and box("slopeMax") == "20")
+
+    # Keyboard: each arrow press moves the thumb one step (0.5% for slope), and the box follows.
+    thumb("slope", "lo").focus()
+    for _ in range(4):
+        page.keyboard.press("ArrowRight")
+    check("moving a thumb updates its box", box("slopeIdeal") == "7", box("slopeIdeal"))
+    # The thumbs cannot cross: pushing the left one to the far end stops one step short of the right one, and pushes it.
+    page.keyboard.press("End")
+    check("a thumb pushed past its partner pushes it along", float(box("slopeIdeal")) < float(box("slopeMax")), f'{box("slopeIdeal")} / {box("slopeMax")}')
+
+    # Typing in a box moves the thumb, and a number beyond the end stretches the slider.
+    page.fill('input[data-path="priceMax"]', "2000000")
+    check("typing in a box moves its thumb", thumb("price", "hi").input_value() == "2000000")
+    check("a number past the end stretches the slider", thumb("price", "hi").get_attribute("max") == "2000000")
+    fill = page.evaluate("() => getComputedStyle(document.querySelector('.range-pair[data-pair=price] .dual')).getPropertyValue('--hi').trim()")
+    check("the colored track follows the thumbs", fill == "100%", fill)
+
+    # Mouse: drag the airport's right thumb to the left.
+    before = float(box("airportMaxMin"))
+    knob = thumb("airport", "hi").bounding_box()
+    track = page.locator('.range-pair[data-pair="airport"] .dual').bounding_box()
+    hi_pct = page.evaluate("() => parseFloat(getComputedStyle(document.querySelector('.range-pair[data-pair=airport] .dual')).getPropertyValue('--hi'))")
+    x = track["x"] + track["width"] * hi_pct / 100
+    page.mouse.move(x, track["y"] + track["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(x - 60, track["y"] + track["height"] / 2, steps=6)
+    page.mouse.up()
+    check("dragging a thumb with the mouse changes its box", float(box("airportMaxMin")) < before, f"{before} -> {box('airportMaxMin')}")
+
+    # Uses: nothing ticked means no recommendation, and the buttons wait.
+    check("the recommendation buttons wait for a use", page.is_disabled("#c-apply-recommended") and page.is_disabled("#c-tick-suggested"))
+    check("every use has a hover explanation", page.locator(".use-list .help").count() == 5)
+    page.check('input[data-use="farm"]')
+    page.check('input[data-use="garden"]')
+    rec = page.text_content('[data-rec="slope"]')
+    check("ticking uses shows the stricter recommendation with its unit", rec == "Recommended: full marks at 3%, zero at 12%", rec)
+    check("rain shows its recommendation in inches", "35 in/year" in page.text_content('[data-rec="rain"]'))
+    check("price has no recommendation, since it depends on you", "No recommendation" in page.text_content('[data-rec="price"]'))
+    check("the suggested criteria are listed", "Groundwater depth" in page.text_content("#c-use-summary"))
+    page.click("#c-apply-recommended")
+    check("Use recommended values moves the sliders", box("slopeIdeal") == "3" and box("slopeMax") == "12" and box("rainFull") == "35" and box("rainZero") == "18",
+          f'{box("slopeIdeal")} {box("slopeMax")} {box("rainFull")} {box("rainZero")}')
+    check("the thumbs follow the recommended values", thumb("slope", "lo").input_value() == "3" and thumb("slope", "hi").input_value() == "12")
+    check("Use recommended values leaves price alone", box("priceMax") == "2000000")
+    page.click("#c-tick-suggested")
+    ticked = page.eval_on_selector_all("#c-criteria-list input[data-crit]:checked", "els => els.map((e) => e.dataset.crit)")
+    check("Tick suggested criteria ticks the farm and garden criteria", {"groundwater", "hazards", "flood"} <= set(ticked), str(ticked))
+    sizes = page.evaluate("() => { const d = document.getElementById('dlg-criteria'); return [d.scrollWidth, d.clientWidth, d.offsetHeight - d.clientHeight]; }")
+    check("Settings has no sideways scrolling", sizes[0] <= sizes[1] and sizes[2] <= 2, str(sizes))
+    save_settings(page)
+    page.reload()
+    page.wait_for_load_state("networkidle")
+    open_settings(page, "scoring")
+    check("the uses survive a reload", page.is_checked('input[data-use="farm"]') and page.is_checked('input[data-use="garden"]')
+          and not page.is_checked('input[data-use="homestead"]'))
+    check("the slider values survive a reload", box("slopeIdeal") == "3" and thumb("slope", "hi").input_value() == "12")
+    page.click("#btn-reset-criteria")   # back to the defaults for the tests that follow (the Census key is kept)
+
+
 def test_criteria(b):
     section("Choosing and ordering your criteria")
     page = b.page
@@ -734,6 +803,11 @@ def test_phone_width(playwright, headed):
     overflow = b.page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth")
     check("no sideways scrolling at 375 px wide", overflow <= 0, f"{overflow}px too wide")
     check("the footer version shows on a phone", b.page.is_visible("#app-version"))
+    open_settings(b.page, "scoring")
+    sizes = b.page.evaluate("() => { const d = document.getElementById('dlg-criteria'); return [d.scrollWidth, d.clientWidth]; }")
+    check("Settings and its sliders fit a phone without sideways scrolling", sizes[0] <= sizes[1], str(sizes))
+    track = b.page.locator('.range-pair[data-pair="slope"] .dual').bounding_box()
+    check("a slider is wide enough to use on a phone", track["width"] >= 250, str(round(track["width"])))
     b.close()
 
 
@@ -746,7 +820,7 @@ def main():
             b = Browser(playwright, headed=headed)
             # These run in order on one browser profile: settings first, so the Census key is set
             # before the parcel is looked up.
-            for test in [test_page_and_footer, test_static_hover_help, test_settings, test_criteria, test_add_errors,
+            for test in [test_page_and_footer, test_static_hover_help, test_settings, test_sliders_and_uses, test_criteria, test_add_errors,
                          test_address_suggestions, test_full_report, test_road_backup_and_refresh,
                          test_criteria_order_shows, test_export,
                          test_demo_list_compare, test_clear_data]:

@@ -599,6 +599,38 @@ function buildComparison(items, s) {
   return rows;
 }
 
+/* ---- recommended ranges for what you plan to do on the land ---- */
+
+// The recommended [full marks, zero] for every range that a ticked use has an opinion on, as { pairKey: [good, bad] }.
+// When two uses disagree the stricter one wins, because the land has to suit both: for a "lower is better" range
+// (slope, drive times, well depth) the smaller numbers, for a "higher is better" one (rain, internet) the larger.
+function recommendedRanges(uses) {
+  const out = {};
+  for (const [use, on] of Object.entries(uses || {})) {
+    if (!on || !LAND_USES[use]) continue;
+    for (const [key, [good, bad]] of Object.entries(LAND_USES[use].ranges)) {
+      const pair = RANGE_PAIRS.find((p) => p.key === key);
+      if (!pair) continue;
+      const stricter = pair.better === "lower" ? Math.min : Math.max;
+      out[key] = out[key] ? [stricter(out[key][0], good), stricter(out[key][1], bad)] : [good, bad];
+    }
+  }
+  return out;
+}
+
+// The criteria worth ticking for the ticked uses, in the default criteria order, with no repeats.
+function suggestedCriteria(uses) {
+  const wanted = new Set();
+  for (const [use, on] of Object.entries(uses || {})) if (on && LAND_USES[use]) for (const key of LAND_USES[use].criteria) wanted.add(key);
+  return DEFAULT_SETTINGS.criteria.order.filter((key) => wanted.has(key));
+}
+
+// "homestead and farm", "homestead, farm and garden": the ticked uses in words.
+function usesText(uses) {
+  const names = Object.keys(LAND_USES).filter((key) => uses && uses[key]).map((key) => LAND_USES[key].label.toLowerCase());
+  return names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
 // The criteria you ticked, in your order.
 function chosenCriteria(s) {
   const c = normalizeCriteria(s.criteria);
