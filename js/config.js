@@ -2,7 +2,7 @@
 
 // The version shown in the page footer and the day it was released. Change both with every release,
 // along with "version" in package.json and the README version history (tests/version.test.js checks they agree).
-const APP_VERSION = "2.2.1";
+const APP_VERSION = "2.3.0";
 const APP_UPDATED = "2026-10-31";   // year-month-day
 
 // Where to sign up for the free Census API key used for the county tax rate and county profile.
@@ -12,16 +12,26 @@ const CENSUS_KEY_SIGNUP_URL = "https://api.census.gov/data/key_signup.html";
    1. Criteria (what "good land" means to you). Saved in this browser.
    ===================================================================== */
 const DEFAULT_SETTINGS = {
-  // The skill tree: POINT_BUDGET points to spend across the factors that matter most. A factor with 0 points is not scored.
-  points: { septic: 2, slope: 1, rain: 1, airport: 2, price: 2, internet: 2 },
-  // Which factors rule a parcel out completely when they hit their worst end. Flood is not scored; it is a yes or no.
-  dealbreakers: { flood: true, septic: false, slope: false, rain: false, airport: true, price: false, internet: false },
+  // Your criteria: tick the ones that matter to you. Every ticked criterion counts the same toward the 0 to 100 score,
+  // and `order` is the order they are shown in (the report summary, the list columns and the compare table).
+  // Keys are those of FACTOR_LABELS. The last five are new in v2.3.0 and start unticked.
+  criteria: {
+    order: ["septic", "airport", "price", "internet", "slope", "rain", "flood", "groundwater", "hazards", "hospital", "grocery"],
+    on: { septic: true, airport: true, price: true, internet: true, slope: true, rain: true,
+      flood: false, groundwater: false, hazards: false, hospital: false, grocery: false },
+  },
+  // Which criteria rule a parcel out completely when they hit their worst end. A switch works whether or not the criterion is ticked.
+  dealbreakers: { flood: true, septic: false, slope: false, rain: false, airport: true, price: false, internet: false,
+    groundwater: false, hazards: false, hospital: false, grocery: false },
   priceTarget: 100000, priceMax: 150000,        // full marks at or below target, zero at or above max
   slopeIdeal: 5, slopeMax: 20,                   // slope in percent
   rainFull: 35, rainZero: 15,                    // average inches of rain per year
   detourFactor: 1.3, avgMph: 55,                 // turns straight-line miles into drive minutes
   airportFullMin: 75, airportMaxMin: 120,        // drive minutes; beyond the max is a dealbreaker
   internetFullMbps: 100, internetZeroMbps: 5,    // best non-satellite download speed
+  groundwaterFullFt: 50, groundwaterZeroFt: 400, // depth to water at the nearest monitoring well; shallower is cheaper to reach
+  hospitalFullMin: 20, hospitalMaxMin: 60,       // drive minutes to the nearest hospital with an emergency room
+  groceryFullMin: 15, groceryMaxMin: 45,         // drive minutes to the nearest supermarket
   censusKey: "",                                 // optional free Census API key, needed for the county tax rate
   // Placeholders for the rough cost estimate. Replace them with real quotes for the area you are searching.
   costs: {
@@ -87,7 +97,10 @@ const LOAN_RULES = {
   fhaLoanLimitFloor: 541287,                        // the national floor for a one-unit home in 2026; higher in costly counties
 };
 
+// Before v2.3.0 the score used a 10-point "skill tree". These are only used to convert settings saved by those versions:
+// a factor that had points becomes a ticked criterion, and more points put it higher in your order.
 const POINT_BUDGET = 10;
+const OLD_DEFAULT_POINTS = { septic: 2, slope: 1, rain: 1, airport: 2, price: 2, internet: 2 };
 
 // Splits `budget` points across factors in proportion to old-style weights, using whole points
 // (the largest leftover fractions get the extra ones). Used once to convert settings saved by older versions.
@@ -108,7 +121,7 @@ function pointsFromWeights(weights, budget) {
 
 // Cleans up saved points: only known factors, whole numbers, never more than the budget in total.
 function normalizePoints(saved) {
-  const known = Object.keys(DEFAULT_SETTINGS.points);
+  const known = Object.keys(OLD_DEFAULT_POINTS);
   const out = Object.fromEntries(known.map((k) => [k, 0]));
   let spent = 0;
   for (const k of known) {
@@ -122,7 +135,36 @@ function normalizePoints(saved) {
 const FACTOR_LABELS = {
   septic: "Septic suitability", slope: "Slope", rain: "Rainfall",
   airport: "Airport distance", price: "Price", internet: "Internet",
+  flood: "Flood risk", groundwater: "Groundwater depth", hazards: "Natural hazard rating",
+  hospital: "Hospital drive", grocery: "Grocery drive",
 };
+
+// Cleans up saved criteria: unknown or repeated keys are dropped, any criterion the saved order is missing
+// (for example one added in a newer version) goes at the end, and only true/false ticks are kept.
+function normalizeCriteria(saved) {
+  const known = Object.keys(FACTOR_LABELS);
+  const savedOrder = saved && Array.isArray(saved.order) ? saved.order : [];
+  const order = [];
+  for (const key of savedOrder) if (known.includes(key) && !order.includes(key)) order.push(key);
+  for (const key of DEFAULT_SETTINGS.criteria.order) if (!order.includes(key)) order.push(key);
+  const on = {};
+  for (const key of known) {
+    const v = saved && saved.on ? saved.on[key] : undefined;
+    on[key] = typeof v === "boolean" ? v : DEFAULT_SETTINGS.criteria.on[key];
+  }
+  return { order, on };
+}
+
+// Turns old skill-tree points into criteria: factors with points are ticked, and the order follows the points
+// (most first, ties keep the default order). Factors added later stay unticked, after the old ones.
+function criteriaFromPoints(points) {
+  const old = Object.keys(OLD_DEFAULT_POINTS);
+  const defaultOrder = DEFAULT_SETTINGS.criteria.order;
+  const byPoints = [...old].sort((a, b) => (points[b] || 0) - (points[a] || 0) || defaultOrder.indexOf(a) - defaultOrder.indexOf(b));
+  const on = {};
+  for (const key of Object.keys(FACTOR_LABELS)) on[key] = old.includes(key) ? (points[key] || 0) > 0 : false;
+  return normalizeCriteria({ order: byPoints, on });
+}
 
 const HIGH_RISK_FLOOD_ZONES = new Set(["A", "AE", "AH", "AO", "AR", "A99", "V", "VE"]);
 const SEPTIC_SCORES = { "Not limited": 100, "Somewhat limited": 60, "Very limited": 15 };
@@ -276,6 +318,7 @@ const DATA_SOURCES = {
   txWells:      { label: "Nearby water wells",       name: "Texas Water Development Board Groundwater Database", url: "https://www.twdb.texas.gov/groundwater/data/index.asp", vintage: "current database; wells are reported by drillers and districts over many decades" },
   txRrc:        { label: "Oil, gas and pipelines",   name: "Railroad Commission of Texas public GIS", url: "https://www.rrc.texas.gov/resource-center/research/gis-viewer/", vintage: "current RRC maps" },
   txEdwards:    { label: "Edwards Aquifer zone",     name: "Edwards Aquifer Recharge Zone boundary (TCEQ, 2005) as published by the City of Austin", url: "https://www.tceq.texas.gov/gis/metadata/edwards_met.html", vintage: "TCEQ boundary adopted 2005" },
+  femaDisasters:{ label: "Disaster declarations",    name: "OpenFEMA Disaster Declarations Summaries", url: "https://www.fema.gov/openfema-data-page/disaster-declarations-summaries-v2", vintage: "declarations in the last 10 years" },
   costs:        { label: "Rough cost",               name: "Placeholder rates and prices from your Criteria",        url: null,                                                       vintage: "your settings; the county tax rate comes from the Census ACS when known" },
 };
 
@@ -375,6 +418,12 @@ const GLOSSARY = {
   "Oil and gas wells within 1 mile": { source: "txRrc", text: "Wells in the Railroad Commission of Texas records, including oil, gas and injection or disposal wells, within one mile. They can bring noise, traffic, flaring, odors and spill risk. Also check who owns the minerals under the land, which this app cannot see." },
   "Pipelines within half a mile": { source: "txRrc", text: "Pipeline segments in Railroad Commission records within half a mile, with the operators and what they carry. A pipeline easement can limit where you can build or dig." },
   "Edwards Aquifer recharge zone": { source: "txEdwards", text: "The area where rain soaks quickly into the Edwards Aquifer, a major water supply for the San Antonio and Austin region. Building, septic systems and other work there fall under extra state water-protection rules (30 TAC Chapter 213) and need approval from the Texas Commission on Environmental Quality (TCEQ). Land just outside it may still drain toward it." },
+  // ---- added in v2.3.0 from services the app already asks ----
+  "Soil permeability (slowest layer)": { source: "soilDetails", text: "How fast water soaks through the slowest soil layer in the top 5 feet (the USDA's saturated hydraulic conductivity, Ksat). Very low or Low can mean a septic drain field drains poorly; Very high can let wastewater reach groundwater before it is cleaned. A percolation test on site decides." },
+  "Social vulnerability": { source: "hazards", text: "FEMA's rating of how hard a disaster tends to hit the people in this census tract (income, age, housing and similar factors), compared with the rest of the US. Higher means a harder recovery." },
+  "Community resilience": { source: "hazards", text: "FEMA's rating of how well the community can prepare for, absorb and recover from a disaster, compared with the rest of the US. Higher is better." },
+  "FEMA disaster declarations (10 years)": { source: "femaDisasters", text: "Federal disaster and emergency declarations that named this county in the last 10 years, with the kinds of events and the latest one. It describes the whole county, not your lot, and a declaration depends on damage to people and property, not just the weather." },
+  "Parcel outline": { source: "txParcel", text: "The parcel's boundary from the appraisal district's map, drawn on the map as a thin line. Appraisal maps are for tax, not a survey, so lines can be off by many feet." },
   // ---- rough cost (every number comes from the placeholder rates in Settings > Costs and loans) ----
   "Loan payment": { text: "Monthly principal and interest on a loan for the land itself, using your down payment, rate and years from Settings. 0 years means the land is treated as paid in cash." },
   "Property tax": { text: "Yearly property tax divided by 12. It uses the county's typical rate from the Census when known and turned on, otherwise your own percent from Settings. Vacant land and farm exemptions can make a real bill very different." },
@@ -385,8 +434,8 @@ const GLOSSARY = {
   "Water well": { text: "Placeholder cost of drilling a water well, from Settings. Depth and rock make this swing widely, so get a local driller's quote." },
   "One-time start-up": { text: "Cash down payment, septic system and water well added together. It leaves out the house, the driveway, electricity and closing costs." },
   // ---- the factor table (the scored factors are explained in FACTOR_TIPS below, with your settings filled in) ----
-  "Factor": { text: "One thing the app scores. Each factor gets a score from 0 to 100, and the total is an average weighted by your points." },
-  "Points": { text: "Your share of the 10 points in Settings. A factor with more points pulls the total score harder. 0 points means the factor is not scored." },
+  "What we found": { text: "The value behind each criterion's score for this parcel, with its unit. \"no data\" means the lookup found nothing, so the criterion is skipped, not scored as zero." },
+  "Criterion": { text: "One of the criteria you ticked in Settings, in your order. Each gets a score from 0 to 100, and the total is the plain average of those that have data. Change which ones count, and their order, in Settings > Scoring." },
 };
 
 // Explanations of the scored factors. Each is a function so it can show the ranges from your current Settings.
@@ -398,6 +447,11 @@ const FACTOR_TIPS = {
   "Airport distance": (s) => `Drive time to the nearest airport. Scores 100 at ${s.airportFullMin} minutes or less and falls to 0 at ${s.airportMaxMin} minutes. Beyond ${s.airportMaxMin} minutes it is a dealbreaker if that switch is on. A road route is used when one is found, otherwise an estimate from straight-line distance.`,
   "Price": (s) => `Asking price. Scores 100 at ${money(s.priceTarget)} or less and 0 at ${money(s.priceMax)} or more, evenly in between.`,
   "Internet": (s) => `Fastest download speed offered by wired or fixed wireless providers at the census block (satellite left out). Scores 100 at ${s.internetFullMbps} Mbps or more and 0 at ${s.internetZeroMbps} Mbps or less. If only satellite is listed it scores 25, and if no service is listed at all it scores 10.`,
+  "Flood risk": () => "FEMA's flood zone for the spot. Zone X (minimal risk) scores 100, shaded zone X (moderate risk) 50, and a high-risk zone (A or V) 0. An unmapped spot is skipped, not scored. Its Dealbreaker switch rules out a high-risk zone.",
+  "Groundwater depth": (s) => `Depth to water at the nearest USGS monitoring well. Scores 100 at ${s.groundwaterFullFt} ft or shallower and 0 at ${s.groundwaterZeroFt} ft or deeper, evenly in between. A monitoring well is not your lot, so treat this as a hint about drilling depth.`,
+  "Natural hazard rating": () => "FEMA's overall National Risk Index rating for the census tract. Very Low scores 100, Relatively Low 75, Relatively Moderate 50, Relatively High 25 and Very High 0.",
+  "Hospital drive": (s) => `Drive time to the nearest hospital that is not marked as having no emergency room, from OpenStreetMap. Scores 100 at ${s.hospitalFullMin} minutes or less and 0 at ${s.hospitalMaxMin} minutes or more.`,
+  "Grocery drive": (s) => `Drive time to the nearest supermarket, from OpenStreetMap. Scores 100 at ${s.groceryFullMin} minutes or less and 0 at ${s.groceryMaxMin} minutes or more. Rural stores are often missing from the map, so check.`,
 };
 
 // Explanations for the boxes in Settings, keyed by the setting's name.
@@ -414,6 +468,12 @@ const SETTING_TIPS = {
   avgMph: "Average driving speed used to turn estimated road miles into minutes when no road route is found. Rural highways and back roads are slower than the speed limit.",
   internetFullMbps: "Best non-satellite download speed (Mbps) that scores 100 for Internet.",
   internetZeroMbps: "Best non-satellite download speed (Mbps) that scores 0. Speeds in between score evenly. It is also the dealbreaker line if that switch is on.",
+  groundwaterFullFt: "Depth to water (feet) at the nearest monitoring well at or above which Groundwater depth scores 100.",
+  groundwaterZeroFt: "Depth to water (feet) at or below which Groundwater depth scores 0. Depths in between score evenly. It is also the dealbreaker line if that switch is on.",
+  hospitalFullMin: "Drive time (minutes) to the nearest emergency hospital at or below which Hospital drive scores 100.",
+  hospitalMaxMin: "Drive time (minutes) to the nearest emergency hospital at which Hospital drive scores 0. It is also the dealbreaker line if that switch is on.",
+  groceryFullMin: "Drive time (minutes) to the nearest supermarket at or below which Grocery drive scores 100.",
+  groceryMaxMin: "Drive time (minutes) to the nearest supermarket at which Grocery drive scores 0. It is also the dealbreaker line if that switch is on.",
   "costs.downPayment": "Cash you plan to put down, in dollars. It is used for the land loan and both home loans, and never counts for more than the price.",
   "costs.ratePct": "Yearly interest rate for a loan on the land itself. Land loans usually cost more than home loans, so ask local lenders and replace this guess.",
   "costs.years": "How many years you would take to repay the land loan. Enter 0 to treat the land as paid in cash.",

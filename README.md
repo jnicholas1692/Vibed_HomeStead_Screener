@@ -21,13 +21,18 @@ This is a personal test of AI-assisted development. I am using it to see how far
 - Choose the order of the report sections in Settings
 - Monthly cost with a dollar down payment, compared across your land loan and 30-year conventional and FHA home loans
 - USDA loan area (Yes or No) from USDA Rural Development's eligibility map
-- Score from 0 to 100 using a 10-point skill tree: spend your points on the factors that matter most, and switch on a dealbreaker for any of them
-- Flood zone shown as a plain Yes or No with the zone, not as a score
+- Score from 0 to 100 from the criteria you tick in Settings: each ticked criterion counts the same, and you can switch on a dealbreaker for any of them
+- Choose the order of your criteria (drag or Up and Down): each report opens with a summary of them in that order, the first few become columns in the parcel list, and the compare table starts with them
+- Eleven criteria to choose from: septic, slope, rain, airport drive, price, internet, flood risk, groundwater depth, natural hazard rating, hospital drive and grocery drive
+- Flood zone shown as a plain Yes or No with the zone, plus FEMA's special flood hazard flag and the base flood elevation when FEMA gives one
 - Nearest airport from about 100 major US airports, or your own list
 - Nearest grocery store, hardware store, Costco, feed store and vet, with real road drive times
 - Nearest elementary, middle and high school
 - Nearest fire station, police or sheriff, and emergency hospital
-- FEMA natural hazard ratings for all 18 hazards FEMA rates (tornado, wildfire, hail, flooding, earthquake and more)
+- FEMA natural hazard ratings for all 18 hazards FEMA rates (tornado, wildfire, hail, flooding, earthquake and more), plus FEMA's social vulnerability and community resilience ratings
+- Federal disaster declarations for the county in the last 10 years
+- Which way the ground slopes, and how fast water soaks through the soil
+- For Texas parcels, the appraisal district's parcel outline drawn on the map
 - USDA plant hardiness zone
 - Soil details (texture, depth to bedrock and water, shrink-swell, building ratings)
 - Frost dates, frost-free days, days over 100 F, snow, and solar hours
@@ -62,7 +67,8 @@ This is a personal test of AI-assisted development. I am using it to see how far
 | Road access | OpenStreetMap through the Overpass API |
 | Wetlands | US Fish and Wildlife Service National Wetlands Inventory |
 | Public and protected land | USGS Protected Areas Database (PAD-US) |
-| Groundwater | USGS National Water Information System |
+| Groundwater | USGS Water Data API |
+| Disaster declarations | OpenFEMA Disaster Declarations Summaries |
 | County property tax rate | Census American Community Survey (free API key) |
 
 ## Privacy
@@ -120,6 +126,7 @@ Add `--headed` to watch the browser. Passing tests cannot prove a real service s
 - **v2.0.2** The main page links to the GitHub repository
 - **v2.1.0** Hover explanations on every data point and Settings option; hunting removed; a Texas details section (parcel record, groundwater district, school district, wells, pipelines, oil and gas, Edwards zone) shown only for Texas parcels; a More local conditions section (county profile, drought, weather alerts, wind, facilities); report grouped into collapsible categories. 133 unit tests.
 - **v2.2.0** A Get a free Census API key link right under the key box in Settings; the page footer shows the version and the date of the last update. 136 unit tests.
+- **v2.3.0** Scoring is now a list of criteria you tick, each counting the same, in an order you choose (it replaces the 10-point skill tree; old settings convert once). Each report opens with a summary of your criteria in your order, the first three become list columns, and the compare table starts with them. Five new criteria (flood risk, groundwater depth, natural hazard rating, hospital drive, grocery drive). New data from services the app already used: FEMA's special flood hazard flag and base flood elevation, slope direction, soil permeability, FEMA social vulnerability and community resilience, and the Texas parcel outline on the map. New service: OpenFEMA disaster declarations for the county. 150 unit tests, 133 browser checks.
 - **v2.2.1** A browser test suite (`test_site.py`, 105 checks with every data service faked) is now part of the repository; the rough cost labels have hover explanations; the Reset to defaults tip now says it saves at once and keeps your Census key. 136 unit tests.
 - **v1.9.1** Drag the report sections into order in Settings (Up and Down still work)
 - **v1.9.0** Down payment in dollars; asking price next to the name in the list; 30-year conventional and FHA payments beside your land loan; a USDA loan area Yes or No from USDA's eligibility map

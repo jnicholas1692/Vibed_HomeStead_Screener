@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v2.2.1.
+> Last updated for v2.3.0.
 
 ## 1. Problem
 
@@ -37,7 +37,7 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | --- | --- | --- | --- |
 | R1 | Add a parcel by street address or map click | Address resolves through the Census geocoder; a bad address gives a clear message; the map click stores coordinates | v1.0.0 |
 | R2 | Look up flood, soil, slope, rain, county, internet | Each source fills in independently; one failure does not block the others; failed sources are labelled | v1.0.0 |
-| R3 | Score 0 to 100 from weighted factors | Missing factors are skipped, not scored as zero; the score says how many factors had data; since v2.0.0 the weights are a 10-point skill tree over seven factors (see R40) | v1.0.0 |
+| R3 | Score 0 to 100 from weighted factors | Missing factors are skipped, not scored as zero; the score says how many factors had data; since v2.3.0 the score is the plain average of the criteria you tick (see R55) | v1.0.0 |
 | R4 | Dealbreakers | A parcel is flagged, and can be hidden from the list, when a factor with its dealbreaker switch on reaches its worst end; since v2.0.0 each criterion has its own switch (see R41) | v1.0.0 |
 | R5 | Choose airports | Default is the nearest major US airport from a built-in list of about 100; the user can instead supply their own list | `feature/airport-picker` (0cb02b4), then `feature/nationwide` (a4b677a) |
 | R6 | Nearest grocery, hardware, Costco, feed store, vet | Five results per parcel or "none found"; search radius widens in steps; busy server is retried on a mirror | `feature/nearby-places` (e2975a5) |
@@ -74,7 +74,7 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R37 | 30-year FHA and conventional loans | The cost section compares your land loan with a conventional and an FHA 30-year loan at the same price: down payment (raised to the loan's minimum of 3% or 3.5% and flagged), amount borrowed, rate, principal and interest, mortgage insurance (PMI under 20% down; FHA 1.75% upfront added to the loan plus a yearly premium for 11 years at 10% down or more, otherwise for the whole loan), tax and insurance, and monthly total; it says bare land cannot be financed this way and flags an FHA loan above the national limit floor | `feature/loans-usda` |
 | R38 | USDA loan area | A Yes or No in the list, the report and the compare table: Yes when the point is outside every ineligible area on USDA Rural Development's single family housing eligibility map; the report says income limits and a home purchase still apply | `feature/loans-usda` |
 | R39 | Drag to reorder report sections | In Settings each section row has a drag handle; dragging a row moves it live, scrolls the window near its edges, and the Up and Down buttons still work for the keyboard | `feature/drag-order` |
-| R40 | Skill tree scoring | Settings > Scoring has 10 points to spend on septic, slope, rain, airport, price and internet with plus and minus buttons and a points-left counter; a factor with 0 points is not scored; saving needs at least one point; weights saved by older versions are converted once into whole points (flood dropped) | `feature/skill-tree-scoring` |
+| R40 | Skill tree scoring (replaced by R55 in v2.3.0) | Settings > Scoring has 10 points to spend on septic, slope, rain, airport, price and internet with plus and minus buttons and a points-left counter; a factor with 0 points is not scored; saving needs at least one point; weights saved by older versions are converted once into whole points (flood dropped) | `feature/skill-tree-scoring` |
 | R41 | Dealbreaker switch per criterion | Each factor and the flood zone has a Dealbreaker switch: flood in a high-risk zone, septic very limited, slope / rain / price at the zero end of the range, airport drive over the limit, not in a hunting county, no wired or fixed wireless internet or speed at the zero end; missing data never triggers one; older settings keep flood and airport on | `feature/skill-tree-scoring` |
 | R42 | Flood zone as Yes or No | The list, the report and the compare table say Yes (with the zone and "high risk") or No (with the zone) or Unknown; it is not in the factor table | `feature/skill-tree-scoring` |
 | R43 | Settings tabs | Settings has Scoring, Costs and loans, and Report layout tabs; an error on another tab opens that tab | `feature/skill-tree-scoring` |
@@ -89,15 +89,20 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R52 | Version in the footer | The page footer shows "Version X.Y.Z, last updated Month D, YYYY" from `APP_VERSION` and `APP_UPDATED` in config.js, with a hover explanation; the date never shifts a day by time zone; a test fails if the version differs from package.json or is missing from the README version history or this SPEC | `feature/census-link-and-version-footer` |
 | R53 | Browser test suite | `test_site.py` opens the site in Chromium with every outside service faked (core lookups and Texas answer, the rest fail on purpose) and checks page load, footer, hover help, Settings and reload, add-window errors, address suggestions, the full report, owner details never on the page, in storage or in an export, the Census key sent only to the Census, no request to an unknown host, categories and printing, demo, sort, filter, compare, delete, clear data, an all-services-down run and phone width; it exits with an error if any check fails | `feature/browser-test-suite` |
 | R54 | Cost labels explained | Every label in the rough cost table has a hover explanation; the Reset to defaults tip matches what it does (saves at once, closes Settings, keeps the Census key) | `feature/browser-test-suite` |
+| R55 | Criteria you tick | Settings > Scoring lists eleven criteria (septic, airport, price, internet, slope, rain, flood risk, groundwater depth, natural hazard rating, hospital drive, grocery drive), each with a tick box, a Dealbreaker switch and Up and Down buttons, and rows can be dragged by their handle; a counter says how many are ticked and what share each has; saving needs at least one tick; the total is the plain average of the ticked criteria that have data; skill-tree points (or older weights) saved by earlier versions are converted once: a factor with points is ticked and more points come first; the five new criteria start unticked | `feature/criteria-scoring-and-new-data` |
+| R56 | Your criteria order everywhere | Each report opens with a table of the ticked criteria in your order (criterion, what was found, score and a bar); the parcel list shows the first three ticked criteria other than price and flood as columns after price, USDA and flood; the compare table lists the ticked criteria right after the score and dealbreakers, marks the best score, and leaves out the usual row that says the same thing | `feature/criteria-scoring-and-new-data` |
+| R57 | More from services already used | The flood request also reads FEMA's special flood hazard flag (it settles unusual zone labels) and base flood elevation, with how far the spot sits above or below it; the four elevation points give the direction the ground faces (or about flat under 1%); the soil layer request adds Ksat, shown as the slowest layer's permeability class in the top 5 feet; the risk index reply adds social vulnerability and community resilience ratings; the Texas parcel request returns the parcel outline (outer ring, at most 400 points), drawn on the map, while owner fields are still dropped | `feature/criteria-scoring-and-new-data` |
+| R58 | County disaster declarations | OpenFEMA declarations naming the county in the last 10 years: the count with each disaster counted once, the main kinds and the latest one, in More local conditions; fails on its own like the other pieces there | `feature/criteria-scoring-and-new-data` |
 
 ## 5. Scoring rules
 
-Schools, emergency services, hazards and hardiness zones are shown but not scored. Whether a parcel is "good" on these depends on the buyer (children, gardening plans, risk tolerance), so the app presents them and leaves the weighing to you.
+You tick the criteria that matter to you in Settings, and every ticked criterion counts the same. Schools, hardiness zone, wetlands and the rest of the report are shown but not scored, because whether they are good depends on the buyer.
 
-Default points (editable, 10 in total): septic 2, airport 2, price 2, slope 1, rain 1, internet 2. Flood zone is not scored; it is a Yes or No.
+Default: septic, airport, price, internet, slope and rain are ticked (the six factors the old skill tree scored); flood risk, groundwater depth, natural hazard rating, hospital drive and grocery drive are available but unticked. The flood dealbreaker stays on by default.
 
-- Each factor maps to 0 to 100 between a "full marks" value and a "zero" value (for example price: full marks at or below $100,000, zero at or above $150,000).
-- Missing data removes the factor from both numerator and denominator.
+- Each criterion maps to 0 to 100 between a "full marks" value and a "zero" value (for example price: full marks at or below $100,000, zero at or above $150,000). Fixed scales: septic Not limited 100, Somewhat limited 60, Very limited 15; flood zone X 100, shaded X 50, high risk 0; FEMA overall rating Very Low 100 down to Very High 0 in steps of 25.
+- The total is the plain average of the ticked criteria that have data.
+- Missing data removes the criterion from the average; it never counts as zero.
 - **[YOUR CALL: why skip instead of scoring zero?]** Suggested reasoning: a failed lookup says nothing about the land, so penalising it would rank parcels by server luck.
 - The defaults reflect a Texas search. Rain, price and slope thresholds vary by region and the app tells the user to reset them.
 
@@ -122,7 +127,7 @@ Default points (editable, 10 in total): septic 2, airport 2, price 2, slope 1, r
 | Wetlands | US Fish and Wildlife Service National Wetlands Inventory | Screening map, not a delineation; small or seasonal wetlands missed |
 | Public and protected land | USGS PAD-US (Public_Access layer) | Unknown-access areas left out; "open" does not mean any particular use is allowed |
 | County property tax rate | Census American Community Survey 5-year, tables B25103 and B25077 | Median for homes, so vacant land and farm exemptions can differ; needs a free key |
-| Groundwater | USGS National Water Information System (gwlevels) | A monitoring well is not your lot; may tap a different aquifer than a household well |
+| Groundwater | USGS Water Data API (field measurements) | A monitoring well is not your lot; may tap a different aquifer than a household well |
 | Texas parcel record | Texas Geographic Information Office land parcels (identify request) | Appraisal-district data, not a survey; owner fields are discarded |
 | Texas wells and districts | TWDB groundwater database, groundwater conservation districts, TEA school districts | Reported wells near the point, not your lot |
 | Texas oil, gas and pipelines | Railroad Commission of Texas GIS | Pipelines within half a mile, wells within a mile; mineral rights are not shown |
@@ -131,6 +136,7 @@ Default points (editable, 10 in total): septic 2, airport 2, price 2, slope 1, r
 | Weather office, alerts | National Weather Service api.weather.gov | Snapshot of when fetched |
 | Wind and humidity | NASA POWER annual climatology | Grid cells about 50 km wide |
 | Regulated facilities | EPA ECHO | Counts facilities within 2 miles; not a pollution reading |
+| Disaster declarations | OpenFEMA Disaster Declarations Summaries (checked from the live site: answers browser requests) | County level; a declaration depends on damage, not just weather |
 | County profile | Census ACS 5-year, county | The Census blocks browser requests without a free key, so this and the tax rate may ask for one |
 
 ## 7. Architecture
@@ -156,8 +162,8 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 
 ## 10. Testing
 
-- 136 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
-- 105 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
+- 150 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
+- 133 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
 - Live checks against real services are manual (see the tutorial).
 
 ## 11. What I would do next

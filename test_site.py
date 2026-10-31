@@ -54,7 +54,7 @@ ALLOWED_HOSTS = {
     "router.project-osrm.org", "services.arcgis.com", "services5.arcgis.com", "phzmapi.org",
     "api.census.gov", "fwspublicservices.wim.usgs.gov", "rdgdwe.sc.egov.usda.gov",
     "api.waterdata.usgs.gov", "api.weather.gov", "power.larc.nasa.gov", "echodata.epa.gov",
-    "feature.geographic.texas.gov", "services.twdb.texas.gov", "gis.rrc.texas.gov",
+    "feature.geographic.texas.gov", "services.twdb.texas.gov", "gis.rrc.texas.gov", "www.fema.gov",
 }
 
 # The smallest valid PNG (one clear pixel), handed back for map tiles.
@@ -164,6 +164,16 @@ def fake_service(url, post_body, mode):
             "geometry": {"coordinates": [LON, LAT]},
             "properties": {"countrycode": "US", "housenumber": "100", "street": "Main Street",
                            "city": "Blanco", "state": "Texas", "postcode": "78606"}}]})
+    if host == "www.fema.gov":
+        # OpenFEMA disaster declarations for the county (two disasters, one listed twice).
+        return json_reply({"DisasterDeclarationsSummaries": [
+            {"disasterNumber": 3649, "declarationDate": "2026-07-18T00:00:00.000Z", "incidentType": "Flood", "declarationType": "EM"},
+            {"disasterNumber": 4705, "declarationDate": "2023-04-21T00:00:00.000Z", "incidentType": "Winter Storm", "declarationType": "DR"},
+            {"disasterNumber": 3649, "declarationDate": "2026-07-18T00:00:00.000Z", "incidentType": "Flood", "declarationType": "EM"}]})
+    if "National_Risk_Index_Census_Tracts" in url:
+        return json_reply({"features": [feature({
+            "RISK_RATNG": "Relatively Moderate", "TRND_RISKR": "Relatively High", "HAIL_RISKR": "Relatively Moderate",
+            "SOVI_RATNG": "Relatively High", "RESL_RATNG": "Relatively Moderate"})]})
     if host == "hazards.fema.gov":
         return json_reply({"features": [feature({"FLD_ZONE": "X", "ZONE_SUBTY": "AREA OF MINIMAL FLOOD HAZARD"})]})
     if host == "epqs.nationalmap.gov":
@@ -173,11 +183,13 @@ def fake_service(url, post_body, mode):
 
     # Texas services, shaped like the fixtures in tests/texas.test.js.
     if host == "feature.geographic.texas.gov":
-        return json_reply({"results": [feature({
+        # A small square parcel around the test spot, as the identify request returns it (longitude first).
+        ring = [[LON - 0.002, LAT - 0.002], [LON + 0.002, LAT - 0.002], [LON + 0.002, LAT + 0.002], [LON - 0.002, LAT + 0.002], [LON - 0.002, LAT - 0.002]]
+        return json_reply({"results": [{"geometry": {"rings": [ring], "spatialReference": {"wkid": 4326}}, **feature({
             "PROP_ID": "R123", "LEGAL_AREA": "10.5", "LGL_AREA_UNIT": "Null", "GIS_AREA": "10.4",
             "LAND_VALUE": "21000", "IMP_VALUE": "0", "MKT_VALUE": "21000", "COUNTY": "Blanco",
             "TAX_YEAR": "2025", "STAT_LAND_USE": "Null", "LOC_LAND_USE": "Ranch land",
-            "OWNER_NAME": SECRETS[0], "MAIL_ADDR": SECRETS[1], "SITUS_ADDR": SECRETS[2]})]})
+            "OWNER_NAME": SECRETS[0], "MAIL_ADDR": SECRETS[1], "SITUS_ADDR": SECRETS[2]})}]})
     if "GroundWaterConservationDistricts" in url:
         return json_reply({"features": [feature({"DistrictName": "Blanco-Pedernales GCD"})]})
     if "TEA_TX_School_Districts" in url:
@@ -324,7 +336,12 @@ def test_settings(b):
     page = b.page
     open_settings(page, "scoring")
     check("Settings opens", page.is_visible("#dlg-criteria"))
-    check("skill tree starts with all 10 points spent", "All 10 points spent" in page.text_content("#c-points-left"))
+    check("six criteria start ticked, each counting the same", "6 ticked, each counts 17%" in page.text_content("#c-criteria-count"))
+    rows = page.eval_on_selector_all("#c-criteria-list li", "els => els.map((li) => li.dataset.key)")
+    check("all eleven criteria are listed", len(rows) == 11, str(rows))
+    no_tip = page.evaluate("() => [...document.querySelectorAll('#c-criteria-list .order-name')].filter((n) => !n.querySelector('.help')).length")
+    check("every criterion name has a hover explanation", no_tip == 0)
+    check("every criterion has a dealbreaker switch", page.locator("#c-criteria-list input[data-deal]").count() == 11)
     help_missing = page.evaluate("""() => [...document.querySelectorAll('#criteria-fields input[data-path]')]
         .filter((input) => !input.closest('label').querySelector('.help')).map((input) => input.dataset.path)""")
     check("every number box in Settings has a hover explanation", help_missing == [], str(help_missing))
@@ -368,6 +385,80 @@ def test_settings(b):
     page.click("#tab-costs")
     check("Reset to defaults keeps the Census key", page.input_value("#c-census-key") == FAKE_CENSUS_KEY)
     close_dialog(page, "dlg-criteria")
+
+
+def test_criteria(b):
+    section("Choosing and ordering your criteria")
+    page = b.page
+    open_settings(page, "scoring")
+    order = lambda: page.eval_on_selector_all("#c-criteria-list li", "els => els.map((li) => li.dataset.key)")
+    # Untick everything and try to save: refused.
+    while page.locator("#c-criteria-list input[data-crit]:checked").count():   # uncheck the first ticked box until none are left
+        page.locator("#c-criteria-list input[data-crit]:checked").first.uncheck()
+    check("the count says none are ticked", "None ticked" in page.text_content("#c-criteria-count"))
+    save_settings(page)
+    check("saving with nothing ticked is refused", page.is_visible("#criteria-error") and "at least one" in page.text_content("#criteria-error"))
+    # Tick septic, slope and groundwater, and move groundwater to the top with the Up button.
+    for key in ["septic", "slope", "groundwater"]:
+        page.check(f"#c-criteria-list input[data-crit={key}]")
+    check("the count follows the ticks", "3 ticked, each counts 33%" in page.text_content("#c-criteria-count"))
+    while order()[0] != "groundwater":
+        page.click("#c-criteria-list button[data-cmove=up][data-key=groundwater]")
+    check("Up moves a criterion to the top", order()[0] == "groundwater")
+    check("the keyboard focus stays on the moved row", page.evaluate("() => document.activeElement.dataset.key") == "groundwater")
+    # Drag slope (wherever it is) above septic by its handle.
+    grip = page.locator("#c-criteria-list li[data-key=slope] .order-grip").bounding_box()
+    target = page.locator("#c-criteria-list li[data-key=septic]").bounding_box()
+    page.mouse.move(grip["x"] + grip["width"] / 2, grip["y"] + grip["height"] / 2)
+    page.mouse.down()
+    page.mouse.move(target["x"] + 20, target["y"] + 4, steps=8)
+    page.mouse.up()
+    now = order()
+    check("dragging a row moves it", now.index("slope") < now.index("septic"), str(now[:4]))
+    save_settings(page)
+    check("the criteria save", not page.is_visible("#dlg-criteria"))
+    page.reload()
+    page.wait_for_load_state("networkidle")
+    open_settings(page, "scoring")
+    saved = order()
+    ticked = page.eval_on_selector_all("#c-criteria-list input[data-crit]:checked", "els => els.map((e) => e.dataset.crit)")
+    check("the order survives a reload", saved[:3] == ["groundwater", "slope", "septic"], str(saved[:3]))
+    check("the ticks survive a reload", ticked == ["groundwater", "slope", "septic"], str(ticked))
+    close_dialog(page, "dlg-criteria")
+    # Back to the defaults for the rest of the tests (the Census key is kept).
+    open_settings(page, "scoring")
+    page.click("#btn-reset-criteria")
+
+
+def test_criteria_order_shows(b):
+    section("Your criteria order shows in the report, the list and the compare table")
+    page = b.page
+    open_settings(page, "scoring")
+    while page.locator("#c-criteria-list input[data-crit]:checked").count():
+        page.locator("#c-criteria-list input[data-crit]:checked").first.uncheck()
+    for key in ["hazards", "septic", "price"]:
+        page.check(f"#c-criteria-list input[data-crit={key}]")
+    order = lambda: page.eval_on_selector_all("#c-criteria-list li", "els => els.map((li) => li.dataset.key)")
+    for key in ["price", "septic", "hazards"]:        # each one to the top in turn, so hazards ends up first
+        while order()[0] != key:
+            page.click(f"#c-criteria-list button[data-cmove=up][data-key={key}]")
+    save_settings(page)
+    page.click("#list .row-name")
+    page.wait_for_selector("#dlg-detail[open]")
+    summary = page.eval_on_selector_all(".summary-table tbody tr td:first-child", "els => els.map((e) => e.textContent.trim())")
+    check("the report summary lists your criteria in your order", summary == ["Natural hazard rating", "Septic suitability", "Price"], str(summary))
+    detail = page.text_content("#detail")
+    check("the score counts your three criteria", "3 of 3 of your criteria had data" in detail,
+          (re.search(r"\d+ of \d+ of your criteria had data", detail) or [""])[0])
+    check("the hazard criterion shows what was found", "Relatively Moderate" in page.text_content(".summary-table"))
+    close_dialog(page, "dlg-detail")
+    heads = page.eval_on_selector_all("#list thead th", "els => els.map((e) => e.textContent.trim())")
+    check("the list columns follow your order (price already has a column)",
+          heads[heads.index("Flood zone") + 1:heads.index("Flood zone") + 3] == ["Natural hazard rating", "Septic suitability"], str(heads))
+    check("the list says how many criteria had data", "3/3 criteria" in page.text_content("#list"))
+    # Back to the default criteria for the rest of the tests.
+    open_settings(page, "scoring")
+    page.click("#btn-reset-criteria")
 
 
 def test_add_errors(b):
@@ -424,8 +515,17 @@ def test_full_report(b):
     check("elevation is shown", "1200 ft" in detail)
     check("slope comes from the elevation points", "3%" in detail, re.search(r"Slope[^%]*%", detail).group(0) if re.search(r"Slope[^%]*%", detail) else "")
     check("septic rating is shown", "Somewhat limited" in detail)
-    check("the score counts only factors with data", "4 of 6 factors had data" in detail,
-          (re.search(r"\d+ of \d+ factors had data", detail) or [""])[0])
+    check("the score counts only criteria with data", "4 of 6 of your criteria had data" in detail,
+          (re.search(r"\d+ of \d+ of your criteria had data", detail) or [""])[0])
+    summary = page.eval_on_selector_all(".summary-table tbody tr td:first-child", "els => els.map((e) => e.textContent.trim())")
+    check("the summary table lists the default criteria in order",
+          summary == ["Septic suitability", "Airport distance", "Price", "Internet", "Slope", "Rainfall"], str(summary))
+    check("slope says which way the ground faces", "about flat" in detail)
+    check("FEMA social vulnerability is shown", "Social vulnerability" in detail and "Relatively High" in detail)
+    check("FEMA community resilience is shown", "Community resilience" in detail)
+    check("county disaster declarations are counted once each", re.search(r"FEMA disaster declarations \(10 years\)\s*2\b", detail) is not None)
+    check("the latest declaration is named", "latest Flood, 2026-07-18" in detail)
+    check("the Texas parcel outline is reported", "drawn on the map" in detail)
     check("failed lookups are listed", "Some lookups failed" in detail and "Internet" in detail)
     check("a failed section says it can be refreshed", "Refresh data" in detail)
     check("the page threw no JavaScript errors", b.page_errors == [], "; ".join(b.page_errors))
@@ -474,7 +574,7 @@ def test_full_report(b):
     message = page.text_content("#summary-msg") or ""
     check("Copy summary gives a result", bool(summary) or bool(message.strip()))
     if summary:
-        check("the summary has the score line", "factors had data" in summary)
+        check("the summary has the score line", "of your criteria had data" in summary)
         check("the summary has no owner details", not any(s in summary for s in SECRETS))
 
     # Notes are saved with the parcel. Save notes also closes the report.
@@ -487,7 +587,9 @@ def test_full_report(b):
     # The list row
     row = page.text_content("#list")
     check("the list shows the new parcel", "Blanco test 10 acres" in row and "$95,000" in row)
-    check("the list shows how many factors had data", "4/6 factors" in row)
+    check("the list shows how many criteria had data", "4/6 criteria" in row)
+    check("the parcel outline is drawn on the map", page.locator(".leaflet-overlay-pane path").count() >= 1)
+    check("the outline is saved without owner details", "SECRET" not in stored_text(page) and '"outline"' in stored_text(page))
 
     # Network: only known services were asked, and the Census key went only to the Census.
     strangers = sorted({urlparse(u).hostname for u in b.requests} - ALLOWED_HOSTS
@@ -538,6 +640,10 @@ def test_demo_list_compare(b):
     compare = page.text_content("#compare")
     check("the compare table shows both parcels", all(n in compare for n in names), str(names))
     check("the compare table names its sources", "Data sources" in compare or "Sources" in compare)
+    labels = page.eval_on_selector_all("#compare tbody tr td:first-child", "els => els.map((e) => e.textContent.trim())")
+    check("the compare table starts with your criteria in your order",
+          labels[2:8] == ["Septic suitability", "Airport distance", "Price", "Internet", "Slope", "Rainfall"], str(labels[:8]))
+    check("a ticked criterion's usual row is not repeated", "Asking price" not in labels and "Internet (best non-satellite)" not in labels)
     close_dialog(page, "dlg-compare")
     boxes.nth(0).uncheck()
     boxes.nth(1).uncheck()
@@ -571,7 +677,7 @@ def test_everything_down(playwright, headed):
     detail = page.text_content("#detail")
     check("the report still opens", page.text_content("#detail-title") == "Offline test")
     check("the failures are listed", "Some lookups failed" in detail)
-    found = re.search(r"(\d+) of (\d+) factors had data", detail)
+    found = re.search(r"(\d+) of (\d+) of your criteria had data", detail)
     check("the score only counts what the app could work out itself", found is not None and int(found.group(1)) <= 2,
           found.group(0) if found else "no score line")
     check("sections say they could not load", "could not load" in detail or "Refresh data" in detail)
@@ -599,9 +705,9 @@ def main():
             b = Browser(playwright, headed=headed)
             # These run in order on one browser profile: settings first, so the Census key is set
             # before the parcel is looked up.
-            for test in [test_page_and_footer, test_static_hover_help, test_settings, test_add_errors,
-                         test_address_suggestions, test_full_report, test_export, test_demo_list_compare,
-                         test_clear_data]:
+            for test in [test_page_and_footer, test_static_hover_help, test_settings, test_criteria, test_add_errors,
+                         test_address_suggestions, test_full_report, test_criteria_order_shows, test_export,
+                         test_demo_list_compare, test_clear_data]:
                 try:
                     test(b)
                 except Exception as error:   # one broken test should not hide the results of the rest

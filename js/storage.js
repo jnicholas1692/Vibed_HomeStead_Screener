@@ -38,14 +38,16 @@ function migrateCosts(costs, saved) {
   return costs;
 }
 
-// Settings from older versions had weights (flood 25, septic 15 ...). Turn them into the 10-point version once.
-function loadPoints(saved) {
-  if (saved.points && typeof saved.points === "object") return normalizePoints(saved.points);
+// Your criteria. Settings saved before v2.3.0 have skill-tree points instead (and before v2.0.0, weights like
+// flood 25, septic 15). Those are turned into criteria once: a factor with points is ticked, more points come first.
+function loadCriteria(saved) {
+  if (saved.criteria && typeof saved.criteria === "object") return normalizeCriteria(saved.criteria);
+  if (saved.points && typeof saved.points === "object") return criteriaFromPoints(normalizePoints(saved.points));
   if (saved.weights && typeof saved.weights === "object") {
-    const { flood, hunting, ...rest } = saved.weights;     // flood is no longer scored, and hunting was removed
-    return normalizePoints(pointsFromWeights({ ...DEFAULT_SETTINGS.points, ...rest }, POINT_BUDGET));
+    const { flood, hunting, ...rest } = saved.weights;     // flood was not scored then, and hunting was removed
+    return criteriaFromPoints(normalizePoints(pointsFromWeights({ ...OLD_DEFAULT_POINTS, ...rest }, POINT_BUDGET)));
   }
-  return { ...DEFAULT_SETTINGS.points };
+  return normalizeCriteria(DEFAULT_SETTINGS.criteria);
 }
 
 function onlyBooleans(obj) {
@@ -57,8 +59,8 @@ function onlyBooleans(obj) {
 function loadSettings() {
   const saved = readStored(SETTINGS_KEY, {});
   return {
-    ...DEFAULT_SETTINGS, ...saved, weights: undefined,
-    points: loadPoints(saved),
+    ...DEFAULT_SETTINGS, ...saved, weights: undefined, points: undefined,
+    criteria: loadCriteria(saved),
     dealbreakers: { ...DEFAULT_SETTINGS.dealbreakers, ...onlyBooleans(saved.dealbreakers) },
     costs: migrateCosts({ ...DEFAULT_SETTINGS.costs, ...(saved.costs || {}) }, saved),
     reportOrder: normalizeReportOrder(saved.reportOrder),

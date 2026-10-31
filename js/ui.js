@@ -135,6 +135,9 @@ function drawMarkers(items) {
     marker.bindTooltip(`${parcel.name} (${scoreText(score.total)})`);
     marker.on("click", () => { if (!pickMode) openDetail(parcel.id); });
     points.push([parcel.lat, parcel.lon]);
+    // A Texas parcel's boundary from the appraisal district record, drawn as a thin outline under the marker.
+    const outline = parcel.site && parcel.site.texas && parcel.site.texas.parcel && parcel.site.texas.parcel.outline;
+    if (outline) L.polygon(outline, { color: MARKER_COLORS[scoreClass(score.total)], weight: 2, fill: false, interactive: false }).addTo(markerLayer);
   }
   if (points.length) map.fitBounds(points, { padding: [40, 40], maxZoom: 12 });
 }
@@ -194,27 +197,25 @@ function renderList(items) {
     return;
   }
   updateCompareButton();
+  // Your first few ticked criteria get their own columns, in your order. Price and flood already have columns.
+  const columns = chosenCriteria(settings).filter((key) => key !== "price" && key !== "flood").slice(0, LIST_CRITERIA_COLUMNS);
   const rows = items.map(({ parcel: p, score }, i) => {
     const site = p.site || {};
-    const net = site.internet ? (site.internet.bestMbps != null ? `${site.internet.bestMbps} Mbps` : (site.internet.technologies.includes("Satellite") ? "Satellite" : "None listed")) : "?";
-    const airportMin = airportMinutes(site, settings);
-    const drive = airportMin != null ? `${Math.round(airportMin)} min` : "?";
     return `<tr class="row" data-open="${esc(p.id)}">
       <td class="col-pick"><input type="checkbox" data-compare="${esc(p.id)}" aria-label="Pick ${esc(p.name)} to compare"${compareIds.includes(p.id) ? " checked" : ""}></td>
       <td class="num col-n">${i + 1}</td>
       <td><button class="row-name" type="button" data-open="${esc(p.id)}">${esc(p.name)}</button>${score.dealbreakers.length ? `<span class="badge" title="${esc(score.dealbreakers.join("; "))}">Dealbreaker</span>` : ""}
         <div class="sub">${esc(countyLabel(p))} &middot; ${esc(p.acres ?? "?")} acres</div></td>
       <td class="num">${money(p.askingPrice)}</td>
-      <td><span class="score ${scoreClass(score.total)}">${scoreText(score.total)}</span><div class="sub">${score.factorsScored}/${score.factorsTotal} factors</div></td>
+      <td><span class="score ${scoreClass(score.total)}">${scoreText(score.total)}</span><div class="sub">${score.factorsScored}/${score.factorsTotal} criteria</div></td>
       <td>${usdaCell(site.usda)}</td>
       <td>${esc(floodShort(site.floodZone))}</td>
-      <td>${esc(net)}</td>
-      <td class="num col-air">${esc(drive)}</td>
+      ${columns.map((key, n) => `<td class="${n > 0 ? "col-air" : ""}">${esc(criterionValueText(key, p, settings, true))}</td>`).join("")}
       <td class="col-del">${deleteButton(p.id)}</td>
     </tr>`;
   }).join("");
   $("list").innerHTML = `<div class="table-scroll"><table>
-    <thead><tr><th class="col-pick">${tipSpan("Pick", "Tick two or three parcels, then press Compare to see them side by side.")}</th><th class="num col-n">${tipSpan("#", "Rank in the list, by the sort you chose.")}</th><th>${tipSpan("Parcel", "Your name for the parcel, with its county and size. Click a row to open its full report.")}</th><th class="num">${tipSpan("Price", "The asking price you entered.")}</th><th>${tipSpan("Score", "0 to 100, an average of the scored factors weighted by your points. A factor with no data for the parcel is skipped. Open the report to see each factor.")}</th><th>${tipSpan("USDA", "Is the spot in an area where USDA Rural Development guaranteed home loans are available? Yes means it is outside USDA's mapped ineligible areas.")}</th><th>${tipSpan("Flood zone", "Is the spot in a high-risk FEMA flood zone (zones starting with A or V)? Yes means high risk.")}</th><th>${tipSpan("Internet", "Fastest wired or fixed wireless download speed the providers report for the spot, with satellite left out.")}</th><th class="num col-air">${tipSpan("To airport", "Drive time to the nearest airport on the app's list.")}</th><th class="col-del" aria-label="Delete"></th></tr></thead>
+    <thead><tr><th class="col-pick">${tipSpan("Pick", "Tick two or three parcels, then press Compare to see them side by side.")}</th><th class="num col-n">${tipSpan("#", "Rank in the list, by the sort you chose.")}</th><th>${tipSpan("Parcel", "Your name for the parcel, with its county and size. Click a row to open its full report.")}</th><th class="num">${tipSpan("Price", "The asking price you entered.")}</th><th>${tipSpan("Score", "0 to 100: the plain average of the criteria you ticked in Settings, each counting the same. A criterion with no data for the parcel is skipped. Open the report to see each one.")}</th><th>${tipSpan("USDA", "Is the spot in an area where USDA Rural Development guaranteed home loans are available? Yes means it is outside USDA's mapped ineligible areas.")}</th><th>${tipSpan("Flood zone", "Is the spot in a high-risk FEMA flood zone (zones starting with A or V)? Yes means high risk.")}</th>${columns.map((key, n) => `<th class="${n > 0 ? "col-air" : ""}">${helpLabel(FACTOR_LABELS[key])}</th>`).join("")}<th class="col-del" aria-label="Delete"></th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 
@@ -355,6 +356,24 @@ function groundwaterHtml(gw) {
     <p class="hint">Depth is feet below ground to the water level in a monitoring well, which is not your lot. Water depth, rock type and well yield can differ a lot over a mile, and a deep or shallow reading nearby does not tell you what a new well will find. A monitoring well may tap a different layer (aquifer) than a household well would. In Texas, the Texas Water Development Board's Water Data for Texas site has driller reports for existing wells near you, and your groundwater conservation district sets the drilling rules. Ask a local well driller what depth and yield to expect.</p>`;
 }
 
+// "4 (Flood, Winter Storm); latest Flood, 2026-07-18" for the county's disaster declarations.
+function disastersText(d) {
+  if (d.count === 0) return `none since ${esc(d.since)}`;
+  const latest = d.recent[0];
+  return `${d.count} <span class="sub">(${esc(d.types.join(", "))})</span>; latest ${esc(latest.type)}, ${esc(latest.date)}${latest.kind ? ` <span class="sub">(${esc(latest.kind)})</span>` : ""}`;
+}
+
+// The extra flood facts after the Yes or No: FEMA's special flood hazard flag and the base flood elevation, when known.
+function floodExtras(site) {
+  const bits = [];
+  if (site.floodBfeFt != null) bits.push(`base flood elevation ${site.floodBfeFt} ft`);
+  if (site.floodBfeFt != null && site.elevationFt != null) {
+    const above = Math.round((site.elevationFt - site.floodBfeFt) * 10) / 10;
+    bits.push(above >= 0 ? `the spot is about ${above} ft above it` : `the spot is about ${-above} ft below it`);
+  }
+  return bits.length ? ` <span class="sub">(${esc(bits.join("; "))})</span>` : "";
+}
+
 // "More local conditions": the county profile, drought, weather office and alerts, wind, design rainfall and nearby regulated facilities.
 function moreHtml(more) {
   if (more === undefined) return `<p class="hint">${notYetText()}</p>`;
@@ -382,6 +401,7 @@ function moreHtml(more) {
       ${row("Average wind speed", "wind", (w) => (w.windMph == null ? "?" : `${w.windMph} mph`))}
       ${row("Average humidity", "wind", (w) => (w.humidityPct == null ? "?" : `${w.humidityPct}%`))}
       ${row("Regulated facilities within 2 miles", "facilities", (f) => (f.facilities > 0 ? `${f.facilities}` : "none listed"))}
+      ${"disasters" in more || failed.includes("disasters") ? row("FEMA disaster declarations (10 years)", "disasters", disastersText) : ""}
     </div>
     <p class="hint">County figures describe the whole county, not your spot. Drought and weather alerts are snapshots from when the data was fetched.</p>`;
 }
@@ -415,6 +435,7 @@ function texasHtml(tx, p) {
       ${par ? row("Appraised land value", "parcel", () => (par.landValue != null ? `${money(par.landValue)}${perAcre} <span class="sub">tax year ${esc(par.taxYear || "?")}</span>` : "?")) : ""}
       ${par && par.marketValue != null ? row("Appraised total value", "parcel", () => money(par.marketValue)) : ""}
       ${par && par.landUse ? row("Land use (appraisal district)", "parcel", () => esc(par.landUse)) : ""}
+      ${par ? row("Parcel outline", "parcel", () => (par.outline ? "drawn on the map" : "not available for this parcel")) : ""}
       ${row("Groundwater district", "groundwaterDistrict", () => (gcd && gcd.name ? esc(gcd.name) : "not in a groundwater conservation district"))}
       ${row("School district", "schoolDistrict", () => (tx.schoolDistrict && tx.schoolDistrict.name ? esc(tx.schoolDistrict.name) : "?"))}
       ${row("Water wells nearby", "wells", () => wellsText)}
@@ -476,6 +497,7 @@ function soilDetailsHtml(sd) {
       ${kv("Depth to bedrock", sd.bedrockDepthIn == null ? "none listed within the survey depth" : `${esc(depthText(sd.bedrockDepthIn))} <span class="sub">(${esc(sd.bedrockKind || "bedrock")})</span>`)}
       ${kv("Flooding / ponding (soil survey)", `${esc(sd.flooding || "?")} / ${esc(sd.ponding || "?")}`)}
       ${kv("Shrink-swell", esc(sd.shrinkSwell || "?"))}
+      ${kv("Soil permeability (slowest layer)", sd.permeability ? `${esc(sd.permeability.rating)} <span class="sub">(${sd.permeability.umPerSec} micrometers a second)</span>` : sd.permeability === undefined ? "not looked up" : "?")}
       ${kv("Water runoff group", esc(sd.hydrologicGroup || "?"))}
       ${sd.interps ? kv("Home without basement", rating(sd.interps.dwellings)) + kv("Shallow excavations", rating(sd.interps.excavations)) + kv("Local roads", rating(sd.interps.roads)) + kv("Pond reservoir", rating(sd.interps.ponds)) + kv("Sewage lagoon", rating(sd.interps.lagoons)) : ""}
     </div>
@@ -489,6 +511,10 @@ function hazardsHtml(hazards) {
     `<tr><td>${esc(h.name)}</td><td class="risk-${h.level}">${esc(h.rating)}</td></tr>`).join("");
   return `<p style="margin:0"><strong>Overall: ${esc(hazards.overall)}</strong>${hazards.unrated ? ` <span class="sub">(${hazards.unrated} of 18 hazards do not apply here)</span>` : ""}</p>
     <div class="table-scroll"><table><thead><tr><th>Hazard</th><th>FEMA rating</th></tr></thead><tbody>${rows}</tbody></table></div>
+    ${hazards.socialVulnerability || hazards.resilience ? `<div class="kv">
+      ${kv("Social vulnerability", esc(hazards.socialVulnerability || "?"))}
+      ${kv("Community resilience", esc(hazards.resilience || "?"))}
+    </div>` : ""}
     <p class="hint">From FEMA's National Risk Index, which rates each census tract (a neighborhood-sized area, not your exact lot) against the rest of the United States. A rating combines how likely a hazard is, what it would damage, and how well the community can cope. It is not a forecast, and it does not replace the flood zone above, which is specific to the parcel. Read more at <a href="https://hazards.fema.gov/nri/" target="_blank" rel="noopener">hazards.fema.gov/nri</a>.</p>`;
 }
 
@@ -551,11 +577,14 @@ function openDetail(id) {
   const site = p.site || {};
   detailId = id;
   const busy = lookingId === p.id;
-  const factorRows = Object.entries(score.parts).map(([name, v]) => `<tr>
-      <td>${helpLabel(FACTOR_LABELS[name])}</td>
+  const summaryRows = score.chosen.map((key) => {
+    const v = score.parts[key];
+    return `<tr>
+      <td>${helpLabel(FACTOR_LABELS[key])}</td>
+      <td>${esc(criterionValueText(key, p, settings))}</td>
       <td class="num">${v == null ? "no data" : Math.round(v)}</td>
-      <td>${v == null ? "" : `<div class="bar"><span style="width:${v}%"></span></div>`}</td>
-      <td class="num">${settings.points[name]}</td></tr>`).join("");
+      <td>${v == null ? "" : `<div class="bar"><span style="width:${v}%"></span></div>`}</td></tr>`;
+  }).join("");
   let drive = "?";
   if (site.airportMiles != null) {
     drive = site.airportDriveMin != null
@@ -568,9 +597,9 @@ function openDetail(id) {
       <h3>What the data says</h3>
       <div class="kv">
         ${kv("Coordinates", `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`)}
-        ${kv("In a flood zone?", esc(floodAnswer(site.floodZone).text))}
+        ${kv("In a flood zone?", esc(floodAnswer(site.floodZone, site.floodSfha).text) + floodExtras(site))}
         ${kv("Elevation", site.elevationFt != null ? `${site.elevationFt} ft` : "?")}
-        ${kv("Slope (steepest of 4 directions)", site.slopePct != null ? `${site.slopePct}%` : "?")}
+        ${kv("Slope (steepest of 4 directions)", site.slopePct != null ? `${site.slopePct}%${site.slopeFacing ? ` <span class="sub">(${site.slopeFacing === "flat" ? "about flat" : `faces ${esc(site.slopeFacing)}`})</span>` : ""}` : "?")}
         ${kv("Soil", esc(site.soilName || "?"))}
         ${kv("Drainage class", esc(site.drainageClass || "?"))}
         ${kv("Septic rating", esc(site.septicRating || "?"))}
@@ -660,8 +689,9 @@ function openDetail(id) {
       <div class="print-only sub">Printed ${esc(new Date().toLocaleDateString())} from Homestead Land Screener. Data sources are listed at the end of the report.</div>
       ${busy ? `<p class="notice no-print" role="status">Looking up data: ${lookupDone} of ${SOURCE_STEPS.length + 3 + (isTexasParcel(p) ? 1 : 0)} lookups finished. The report fills in as each one arrives.</p>` : ""}
       ${score.dealbreakers.length ? `<p class="notice bad"><strong>Dealbreakers:</strong> ${esc(score.dealbreakers.join("; "))}</p>` : ""}
-      <div class="score-line"><span class="big">${scoreText(score.total)}</span><span class="sub">score &middot; ${score.factorsScored} of ${score.factorsTotal} factors had data</span></div>
-      <div class="table-scroll"><table><thead><tr><th>${helpLabel("Factor")}</th><th class="num">${tipSpan("Score", "This factor's score from 0 (worst) to 100 (best). \"no data\" means the lookup found nothing, so the factor is skipped, not scored as zero.")}</th><th></th><th class="num">${helpLabel("Points")}</th></tr></thead><tbody>${factorRows}</tbody></table></div>
+      <div class="score-line"><span class="big">${scoreText(score.total)}</span><span class="sub">score &middot; ${score.factorsScored} of ${score.factorsTotal} of your criteria had data</span></div>
+      <div class="table-scroll"><table class="summary-table"><thead><tr><th>${helpLabel("Criterion")}</th><th>${helpLabel("What we found")}</th><th class="num">${tipSpan("Score", "This criterion's score from 0 (worst) to 100 (best). \"no data\" means the lookup found nothing, so the criterion is skipped, not scored as zero.")}</th><th></th></tr></thead><tbody>${summaryRows}</tbody></table></div>
+      <p class="hint no-print">Your criteria, in your order. Every one counts the same. Choose which count, and their order, in Settings &gt; Scoring.</p>
       ${!busy && p.errors && p.errors.length ? `<p class="notice">Some lookups failed, so the score is partial: ${esc(p.errors.join("; "))}. Use Refresh data to try again.</p>` : ""}
       <div class="group-tools no-print"><button class="btn small" type="button" data-groups="open" ${tipAttr("Open every category in this report.")}>Expand all</button><button class="btn small" type="button" data-groups="close" ${tipAttr("Close every category so only the headings show.")}>Collapse all</button></div>
       ${orderedSections}
@@ -1004,6 +1034,9 @@ const SCORING_FIELDS = [
   ["Airport: full marks within (min)", "airportFullMin"], ["Airport: dealbreaker beyond (min)", "airportMaxMin"],
   ["Road detour factor", "detourFactor"], ["Average speed (mph)", "avgMph"],
   ["Internet: full marks at (Mbps)", "internetFullMbps"], ["Internet: zero at (Mbps)", "internetZeroMbps"],
+  ["Groundwater: full marks at or above (ft)", "groundwaterFullFt"], ["Groundwater: zero at or below (ft)", "groundwaterZeroFt"],
+  ["Hospital: full marks within (min)", "hospitalFullMin"], ["Hospital: zero at (min)", "hospitalMaxMin"],
+  ["Grocery: full marks within (min)", "groceryFullMin"], ["Grocery: zero at (min)", "groceryMaxMin"],
 ];
 
 // Number boxes for the Costs and loans tab.
@@ -1048,11 +1081,12 @@ let orderDrag = null;   // { row, pointerId } while a row is being dragged
 
 function finishOrderDrag() {
   if (!orderDrag) return;
-  const list = $("c-order-list");
+  const list = orderDrag.list;
   orderDrag.row.classList.remove("dragging");
   orderDrag = null;
-  orderDraft = [...list.children].map((row) => row.dataset.key);   // the rows were moved on screen; read the new order from them
-  renderOrderList();
+  const keys = [...list.children].map((row) => row.dataset.key);   // the rows were moved on screen; read the new order from them
+  if (list.id === "c-criteria-list") { criteriaDraft.order = keys; renderCriteriaList(); }
+  else { orderDraft = keys; renderOrderList(); }
 }
 
 // The list is built each time Settings opens, so the listener sits on the window that always exists.
@@ -1061,13 +1095,13 @@ $("criteria-fields").addEventListener("pointerdown", (event) => {
   if (!grip || event.button > 0) return;
   event.preventDefault();
   grip.setPointerCapture(event.pointerId);   // keeps the moves coming even when the pointer leaves the handle
-  orderDrag = { row: grip.closest("li"), pointerId: event.pointerId };
+  orderDrag = { row: grip.closest("li"), list: grip.closest("ol"), pointerId: event.pointerId };   // the report order or the criteria
   orderDrag.row.classList.add("dragging");
 });
 
 $("criteria-fields").addEventListener("pointermove", (event) => {
   if (!orderDrag || event.pointerId !== orderDrag.pointerId) return;
-  const list = $("c-order-list");
+  const list = orderDrag.list;
   // The dragged row goes just above the first other row whose middle is below the pointer, or to the end.
   const others = [...list.children].filter((row) => row !== orderDrag.row);
   const next = others.find((row) => { const box = row.getBoundingClientRect(); return event.clientY < box.top + box.height / 2; });
@@ -1090,7 +1124,10 @@ function moveSection(key, dir) {
   renderOrderList({ key, dir });
 }
 
-// What each dealbreaker switch means, shown beside the switch.
+// How many of your ticked criteria get their own column in the parcel list (after price, USDA and flood).
+const LIST_CRITERIA_COLUMNS = 3;
+
+// What each dealbreaker switch means, shown in its hover explanation.
 const DEALBREAKER_RULES = {
   flood: "if the spot is in a high-risk FEMA flood zone",
   septic: "if the soil is very limited for a septic system",
@@ -1099,31 +1136,49 @@ const DEALBREAKER_RULES = {
   airport: "if the drive to the airport is longer than the dealbreaker minutes below",
   price: "if the price is at or above the zero end of its range below",
   internet: "if there is no wired or fixed wireless service, or the speed is at or below the zero end below",
+  groundwater: "if the nearest well's water is at or below the zero depth below",
+  hazards: "if FEMA rates the area's overall natural hazard risk Very High",
+  hospital: "if the nearest emergency hospital is at or beyond the zero minutes below",
+  grocery: "if the nearest supermarket is at or beyond the zero minutes below",
 };
 
-let pointsDraft = {};   // the skill tree being edited; saved with the Save button
-let dealDraft = {};     // the dealbreaker switches being edited
+let criteriaDraft = { order: [], on: {} };   // the criteria being edited; saved with the Save button
+let dealDraft = {};                          // the dealbreaker switches being edited
 
-function pointsLeft() { return POINT_BUDGET - Object.values(pointsDraft).reduce((a, b) => a + b, 0); }
+// "4 ticked, each counts 25% of the score".
+function updateCriteriaCount() {
+  const n = criteriaDraft.order.filter((key) => criteriaDraft.on[key]).length;
+  $("c-criteria-count").textContent = n === 0 ? "None ticked" : `${n} ticked, each counts ${Math.round(100 / n)}% of the score`;
+  $("c-criteria-count").classList.toggle("spent", n === 0);
+}
 
-function renderTree() {
-  const left = pointsLeft();
-  $("c-points-left").textContent = left === 0 ? `All ${POINT_BUDGET} points spent` : `${left} of ${POINT_BUDGET} points left`;
-  $("c-points-left").classList.toggle("spent", left === 0);
-  $("c-tree").innerHTML = Object.keys(DEFAULT_SETTINGS.points).map((key) => {
-    const n = pointsDraft[key], name = FACTOR_LABELS[key];
-    const pips = Array.from({ length: POINT_BUDGET }, (_, i) => `<i class="${i < n ? "on" : ""}"></i>`).join("");
-    return `<li class="node${n > 0 ? " active" : ""}">
-      <div class="node-main">
-        <span class="node-name">${helpLabel(name)}</span>
-        <span class="pips" aria-hidden="true">${pips}</span>
-        <button class="btn small" type="button" data-point="${key}" data-delta="-1" aria-label="Take a point from ${esc(name)}" ${tipAttr(`Take a point away from ${name}. The point goes back to your pool.`)}${n === 0 ? " disabled" : ""}>&minus;</button>
-        <output class="node-points" aria-label="${esc(name)} points">${n}</output>
-        <button class="btn small" type="button" data-point="${key}" data-delta="1" aria-label="Give a point to ${esc(name)}" ${tipAttr(`Give a point to ${name}. More points make it pull the total score harder.`)}${left === 0 ? " disabled" : ""}>+</button>
-      </div>
-      <label class="node-deal"><input type="checkbox" data-deal="${key}"${dealDraft[key] ? " checked" : ""}> ${tipSpan("Dealbreaker", `When on, a parcel is flagged as a dealbreaker ${DEALBREAKER_RULES[key]}. It still gets a score, and you can hide flagged parcels in the list. Missing data never triggers it.`)} <span class="sub">${esc(DEALBREAKER_RULES[key])}</span></label>
+function renderCriteriaList(focus) {
+  const last = criteriaDraft.order.length - 1;
+  $("c-criteria-list").innerHTML = criteriaDraft.order.map((key, i) => {
+    const name = FACTOR_LABELS[key], on = criteriaDraft.on[key];
+    return `<li data-key="${key}" class="${on ? "active" : ""}">
+      <span class="order-grip" title="Drag to reorder" aria-hidden="true">&#8942;&#8942;</span>
+      <input type="checkbox" data-crit="${key}" aria-label="Count ${esc(name)} in the score"${on ? " checked" : ""}>
+      <span class="order-name">${helpLabel(name)}</span>
+      <label class="node-deal"><input type="checkbox" data-deal="${key}"${dealDraft[key] ? " checked" : ""}> ${tipSpan("Dealbreaker", `When on, a parcel is flagged as a dealbreaker ${DEALBREAKER_RULES[key]}. This works even if the criterion is not ticked. Missing data never triggers it.`)}</label>
+      <button class="btn small" type="button" data-cmove="up" data-key="${key}" aria-label="Move ${esc(name)} up"${i === 0 ? " disabled" : ""}>Up</button>
+      <button class="btn small" type="button" data-cmove="down" data-key="${key}" aria-label="Move ${esc(name)} down"${i === last ? " disabled" : ""}>Down</button>
     </li>`;
   }).join("");
+  updateCriteriaCount();
+  if (focus) {
+    const wanted = $("c-criteria-list").querySelector(`button[data-key="${focus.key}"][data-cmove="${focus.dir}"]:not(:disabled)`)
+      || $("c-criteria-list").querySelector(`button[data-key="${focus.key}"]:not(:disabled)`);
+    if (wanted) wanted.focus();
+  }
+}
+
+function moveCriterion(key, dir) {
+  const i = criteriaDraft.order.indexOf(key);
+  const j = dir === "up" ? i - 1 : i + 1;
+  if (i < 0 || j < 0 || j >= criteriaDraft.order.length) return;
+  [criteriaDraft.order[i], criteriaDraft.order[j]] = [criteriaDraft.order[j], criteriaDraft.order[i]];
+  renderCriteriaList({ key, dir });
 }
 
 function showSettingsTab(name) {
@@ -1141,18 +1196,14 @@ function numberBoxes(fields) {
 }
 
 function openCriteria() {
-  pointsDraft = { ...settings.points };
+  criteriaDraft = normalizeCriteria(settings.criteria);
   dealDraft = { ...settings.dealbreakers };
   $("criteria-fields").innerHTML = `
     <div class="tab-panel" id="panel-scoring" role="tabpanel" aria-labelledby="tab-scoring" data-panel="scoring">
       <div class="stack">
-        <div class="tree-head"><strong>${tipSpan("Skill tree", "You have 10 points to spend on what matters most. A factor's share of the points decides how much it counts toward the 0 to 100 score. 0 points means the factor is ignored.")}</strong><span class="points-left" id="c-points-left" role="status"></span></div>
-        <p class="hint">Spend ${POINT_BUDGET} points on what matters most to you. More points means the factor pulls the score harder. A factor with 0 points is not scored, and a factor with no data for a parcel is skipped, not counted as zero. Turn on Dealbreaker to rule a parcel out completely when that factor is at its worst.</p>
-        <ul class="tree" id="c-tree"></ul>
-        <div class="node flood-node">
-          <div class="node-main"><span class="node-name">${helpLabel("In a flood zone?")}</span><span class="sub">Not scored. The report shows a plain Yes or No with the zone.</span></div>
-          <label class="node-deal"><input type="checkbox" data-deal="flood"${dealDraft.flood ? " checked" : ""}> ${tipSpan("Dealbreaker", `When on, a parcel is flagged as a dealbreaker ${DEALBREAKER_RULES.flood}. Missing data never triggers it.`)} <span class="sub">${esc(DEALBREAKER_RULES.flood)}</span></label>
-        </div>
+        <div class="tree-head"><strong>${tipSpan("Your criteria", "Tick what matters to you. Every ticked criterion counts the same toward the 0 to 100 score. The order is the order they appear in each report's summary, in the list columns and in the compare table.")}</strong><span class="points-left" id="c-criteria-count" role="status"></span></div>
+        <p class="hint">Tick the criteria that matter most to you. Each ticked one counts the same, and one with no data for a parcel is skipped, not counted as zero. Drag a row by the dots on its left, or use Up and Down, to set the order they are shown in. The first ${LIST_CRITERIA_COLUMNS} (besides price and flood) also become columns in the parcel list. Turn on Dealbreaker to rule a parcel out completely when that criterion is at its worst.</p>
+        <ol class="order-list crit-list" id="c-criteria-list"></ol>
       </div>
       <div class="fields">
         <p class="hint wide">These ranges are starting points, not rules. Rainfall, price and slope that count as good vary a lot across the US (for example, 15 inches of rain a year is dry in Georgia but normal in Nevada), so set them for the region you are searching.</p>
@@ -1184,12 +1235,12 @@ function openCriteria() {
     <div class="tab-panel" id="panel-layout" role="tabpanel" aria-labelledby="tab-layout" data-panel="layout" hidden>
       <div class="stack" id="c-order-block">
         <strong>Order of the report sections</strong>
-        <p class="hint">The score and factor table always come first, and the data sources and your notes always come last. Drag a row by the dots on its left, or use Up and Down, to arrange everything between them. The report groups sections into collapsible categories (shown at the right of each row). Inside a category the sections follow this order, and the category that holds your first section comes first. The change applies to the report on screen and to the printout.</p>
+        <p class="hint">The score and the summary of your criteria always come first, and the data sources and your notes always come last. Drag a row by the dots on its left, or use Up and Down, to arrange everything between them. The report groups sections into collapsible categories (shown at the right of each row). Inside a category the sections follow this order, and the category that holds your first section comes first. The change applies to the report on screen and to the printout.</p>
         <ol class="order-list" id="c-order-list"></ol>
         <div><button class="btn small" type="button" id="c-order-reset">Reset to the default order</button></div>
       </div>
     </div>`;
-  renderTree();
+  renderCriteriaList();
   orderDraft = normalizeReportOrder(settings.reportOrder);
   renderOrderList();
   $("c-airport-mode").value = settings.airportMode;
@@ -1232,15 +1283,16 @@ function saveCriteria(event) {
     }
     setPath(next, input.dataset.path, value);
   }
-  if (pointsLeft() === POINT_BUDGET) {
-    settingsError("Spend at least one point in the skill tree, or every parcel would have no score.", $("c-tree"));
+  if (!criteriaDraft.order.some((key) => criteriaDraft.on[key])) {
+    settingsError("Tick at least one criterion, or every parcel would have no score.", $("c-criteria-list"));
     return;
   }
-  next.points = normalizePoints(pointsDraft);
+  next.criteria = normalizeCriteria(criteriaDraft);
   next.dealbreakers = { ...dealDraft };
-  if (next.priceMax === next.priceTarget || next.slopeMax === next.slopeIdeal || next.rainFull === next.rainZero
-      || next.airportMaxMin === next.airportFullMin || next.internetFullMbps === next.internetZeroMbps) {
-    settingsError("The two ends of each range must be different numbers.", $("c-tree"));
+  const ranges = [["priceTarget", "priceMax"], ["slopeIdeal", "slopeMax"], ["rainFull", "rainZero"], ["airportFullMin", "airportMaxMin"],
+    ["internetFullMbps", "internetZeroMbps"], ["groundwaterFullFt", "groundwaterZeroFt"], ["hospitalFullMin", "hospitalMaxMin"], ["groceryFullMin", "groceryMaxMin"]];
+  if (ranges.some(([a, b]) => next[a] === next[b])) {
+    settingsError("The two ends of each range must be different numbers.", $("c-criteria-list"));
     return;
   }
   next.censusKey = $("c-census-key").value.trim();
@@ -1439,19 +1491,8 @@ $("form-criteria").addEventListener("keydown", (event) => {
   next.focus();
 });
 $("criteria-fields").addEventListener("click", (event) => {
-  const point = event.target.closest("[data-point]");
-  if (point) {
-    const key = point.dataset.point, delta = Number(point.dataset.delta);
-    if (delta > 0 && pointsLeft() === 0) return;
-    if (delta < 0 && pointsDraft[key] === 0) return;
-    pointsDraft[key] += delta;
-    renderTree();
-    // The buttons were redrawn, so put the keyboard focus back on the one that was used (or its partner if it is now off).
-    const again = $("c-tree").querySelector(`button[data-point="${key}"][data-delta="${delta}"]:not(:disabled)`)
-      || $("c-tree").querySelector(`button[data-point="${key}"]:not(:disabled)`);
-    if (again) again.focus();
-    return;
-  }
+  const cmove = event.target.closest("[data-cmove]");
+  if (cmove) { moveCriterion(cmove.dataset.key, cmove.dataset.cmove); return; }
   const move = event.target.closest("[data-move]");
   if (move) { moveSection(move.dataset.key, move.dataset.move); return; }
   if (event.target.id === "c-order-reset") { orderDraft = normalizeReportOrder([]); renderOrderList(); }
@@ -1459,6 +1500,12 @@ $("criteria-fields").addEventListener("click", (event) => {
 // Choosing a preset airport adds its line to the text box.
 $("criteria-fields").addEventListener("change", (event) => {
   if (event.target.dataset.deal) { dealDraft[event.target.dataset.deal] = event.target.checked; return; }
+  if (event.target.dataset.crit) {
+    criteriaDraft.on[event.target.dataset.crit] = event.target.checked;
+    event.target.closest("li").classList.toggle("active", event.target.checked);
+    updateCriteriaCount();
+    return;
+  }
   if (event.target.id === "c-airport-mode") {
     $("c-custom-airports").hidden = event.target.value !== "custom";
     return;

@@ -39,7 +39,7 @@ test("the septic tip explains the scores, and factor tips use the current ranges
 });
 
 test("hunting is gone from the settings, the factors and the tips", () => {
-  assert.equal("hunting" in plain(app.get("DEFAULT_SETTINGS.points")), false);
+  assert.equal("hunting" in plain(app.get("DEFAULT_SETTINGS.criteria.on")), false);
   assert.equal("hunting" in plain(app.get("FACTOR_LABELS")), false);
   assert.equal(/hunt/i.test(ui.replace(/removed/g, "")), false);
   assert.equal(/hunt/i.test(fs.readFileSync(path.join(__dirname, "..", "js", "config.js"), "utf8")), false);
