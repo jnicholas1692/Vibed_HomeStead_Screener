@@ -77,7 +77,11 @@ function loadSettings() {
 function loadView() {
   const saved = readStored(VIEW_KEY, {});
   const view = { ...DEFAULT_VIEW, ...saved };
-  if (!SORTS[view.sort]) view.sort = DEFAULT_VIEW.sort;   // ignore a sort name we no longer have
+  if (!isKnownSort(view.sort)) view.sort = DEFAULT_VIEW.sort;   // ignore a sort name we no longer have
+  view.columns = Array.isArray(view.columns) ? view.columns.filter((key) => FACTOR_LABELS[key]) : null;
+  const f = view.filter;
+  view.filter = f && FACTOR_LABELS[f.key] && (f.op === "max" || f.op === "min")
+    ? { key: f.key, op: f.op, value: Number.isFinite(f.value) ? f.value : null } : null;
   return view;
 }
 

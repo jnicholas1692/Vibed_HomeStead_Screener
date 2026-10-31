@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Homestead Land Screener</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="css/styles.css?v=2.7.1">
+<link rel="stylesheet" href="css/styles.css?v=2.8.0">
 </head>
 <body>
 <header class="top">
@@ -48,8 +48,16 @@
           </select>
         </label>
         <label class="check"><input type="checkbox" id="hide-dealbreakers"> Hide dealbreakers</label>
+        <details class="col-picker" id="col-picker"><summary class="btn small" id="col-picker-button">Columns</summary><div class="col-menu" id="col-menu"></div></details>
         <button class="btn small" type="button" id="btn-compare" disabled>Compare</button>
       </div>
+      <div class="list-controls list-filter">
+        <label>Filter <select id="filter-crit"></select></label>
+        <label>Keep <select id="filter-op"><option value="max">at most</option><option value="min">at least</option></select></label>
+        <label>Value <input id="filter-value" inputmode="decimal"></label>
+        <button class="btn small" type="button" id="filter-clear">Clear filter</button>
+      </div>
+      <p class="hint list-hint" id="filter-hint" hidden></p>
       <p class="hint list-hint" id="compare-hint">Tick two or three parcels in the "Pick" column to compare them side by side.</p>
       <div id="list"></div>
     </section>
@@ -142,10 +150,10 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <!-- The ?v= number is the app version. A new number makes browsers fetch every file fresh, so a visitor never runs
      new and old files together after an update. Change it with APP_VERSION (tests/version.test.js checks they match). -->
-<script src="js/config.js?v=2.7.1"></script>
-<script src="js/scoring.js?v=2.7.1"></script>
-<script src="js/sources.js?v=2.7.1"></script>
-<script src="js/storage.js?v=2.7.1"></script>
-<script src="js/ui.js?v=2.7.1"></script>
+<script src="js/config.js?v=2.8.0"></script>
+<script src="js/scoring.js?v=2.8.0"></script>
+<script src="js/sources.js?v=2.8.0"></script>
+<script src="js/storage.js?v=2.8.0"></script>
+<script src="js/ui.js?v=2.8.0"></script>
 </body>
 </html>

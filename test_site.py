@@ -71,6 +71,9 @@ BLANK_PNG = bytes.fromhex(
 # ---------------------------------------------------------------------------------------------
 # Results
 # ---------------------------------------------------------------------------------------------
+# Windows consoles cannot print every character (like the sort arrows), so print what they can instead of crashing.
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 passed, failed = [], []
 
 
@@ -694,7 +697,8 @@ def test_criteria_order_shows(b):
           (re.search(r"\d+ of \d+ of your criteria had data", detail) or [""])[0])
     check("the hazard criterion shows what was found", "Relatively Moderate" in page.text_content(".summary-table"))
     close_dialog(page, "dlg-detail")
-    heads = page.eval_on_selector_all("#list thead th", "els => els.map((e) => e.textContent.trim())")
+    # Each heading's own words (its dotted label), without the little sort button next to it.
+    heads = page.eval_on_selector_all("#list thead th", "els => els.map((e) => (e.querySelector('.help') || e).textContent.trim())")
     check("the list columns follow your order (price already has a column)",
           heads[heads.index("Flood zone") + 1:heads.index("Flood zone") + 3] == ["Natural hazard rating", "Septic suitability"], str(heads))
     check("the list says how many criteria had data", "3/3 criteria" in page.text_content("#list"))
@@ -902,6 +906,58 @@ def test_demo_list_compare(b):
     check("the second click deletes", page.locator("#list tr.row").count() == 3)
 
 
+def test_list_columns_sort_filter(b):
+    section("List columns, sorting by a criterion, and the value filter")
+    page = b.page
+    page.select_option("#sort-by", "score")
+    rows_before = page.locator("#list tr.row").count()
+    heads = lambda: page.eval_on_selector_all("#list thead th", "els => els.map((e) => (e.querySelector('.help') || e).textContent.trim())")
+    # Columns menu: offers the ticked criteria except price and flood (they always have columns).
+    page.click("#col-picker-button")
+    offered = page.eval_on_selector_all("#col-menu [data-col]", "els => els.map((e) => e.dataset.col)")
+    check("the Columns menu offers the ticked criteria", offered == ["septic", "airport", "internet", "slope", "rain"], str(offered))
+    check("the first three start as columns", page.eval_on_selector_all("#col-menu [data-col]:checked", "els => els.map((e) => e.dataset.col)") == ["septic", "airport", "internet"])
+    page.uncheck('#col-menu [data-col="airport"]')
+    check("unticking a criterion removes its column", "Airport distance" not in heads(), str(heads()))
+    check("the Columns menu stays open while you change it", page.locator("#col-picker[open]").count() == 1)
+    page.check('#col-menu [data-col="slope"]')
+    check("ticking a criterion adds its column", "Slope" in heads(), str(heads()))
+    page.locator("#list h2, h2").first.click()
+    check("a click elsewhere closes the Columns menu", page.locator("#col-picker[open]").count() == 0)
+    page.reload()
+    page.wait_for_load_state("networkidle")
+    check("the chosen columns survive a reload", "Slope" in heads() and "Airport distance" not in heads(), str(heads()))
+
+    # Sorting by a column heading: low to high, then high to low.
+    slope_col = heads().index("Slope")
+    slopes = lambda: [float(t.rstrip("%")) for t in page.eval_on_selector_all(f"#list tbody tr td:nth-child({slope_col + 1})", "els => els.map((e) => e.textContent.trim())")]
+    page.click('#list [data-sort-key="slope"]')
+    check("a heading's sort button sorts low to high", slopes() == sorted(slopes()), str(slopes()))
+    check("the Sort menu shows the criterion sort", page.input_value("#sort-by") == "crit:slope:asc")
+    page.click('#list [data-sort-key="slope"]')
+    check("a second click sorts high to low", slopes() == sorted(slopes(), reverse=True), str(slopes()))
+    labels = page.eval_on_selector_all("#sort-by option", "els => els.map((e) => e.textContent)")
+    check("the Sort menu offers each ticked criterion both ways", "Rainfall: high to low" in labels and "Septic suitability score: low to high" in labels, str(labels[-4:]))
+    check("the sort buttons have hover help", page.locator("#list [data-sort-key]").first.get_attribute("data-tip") is not None)
+
+    # Filter: slope at most 5% hides the steeper parcels and says so.
+    page.select_option("#filter-crit", "slope")
+    check("choosing a filter moves to the value box", page.evaluate("() => document.activeElement.id") == "filter-value")
+    page.fill("#filter-value", "5")
+    shown = slopes()
+    check("the filter keeps only parcels at most 5%", shown and all(v <= 5 for v in shown), str(shown))
+    check("the filter hint says what it does and how many are hidden", "Slope at most 5%" in page.text_content("#filter-hint")
+          and "hidden by the filters" in page.text_content("#filter-hint"), page.text_content("#filter-hint"))
+    page.select_option("#filter-op", "min")
+    check("at least flips the filter", all(v >= 5 for v in slopes()), str(slopes()))
+    page.reload()
+    page.wait_for_load_state("networkidle")
+    check("the filter survives a reload", page.input_value("#filter-crit") == "slope" and page.input_value("#filter-value") == "5")
+    page.click("#filter-clear")
+    check("Clear filter shows every parcel again", page.locator("#list tr.row").count() == rows_before and page.is_hidden("#filter-hint"))
+    page.select_option("#sort-by", "score")
+
+
 def test_clear_data(b):
     section("Clear data")
     page = b.page
@@ -992,7 +1048,7 @@ def main():
             for test in [test_page_and_footer, test_static_hover_help, test_settings, test_sliders_and_uses, test_criteria, test_add_errors,
                          test_address_suggestions, test_full_report, test_road_backup_and_refresh, test_people_and_crime, test_texas_tax_and_exemptions,
                          test_criteria_order_shows, test_export,
-                         test_demo_list_compare, test_clear_data]:
+                         test_demo_list_compare, test_list_columns_sort_filter, test_clear_data]:
                 try:
                     test(b)
                 except Exception as error:   # one broken test should not hide the results of the rest

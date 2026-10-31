@@ -50,6 +50,7 @@ This is a personal test of AI-assisted development. I am using it to see how far
 - Every section of the report names its data source, link and date
 - Hover over (or tap, or tab to) a dotted label to see in plain words what the data means and who supplies it
 - Sort, filter by status, and hide dealbreakers
+- Choose which of your criteria are columns in the parcel list (the Columns menu), sort by any criterion low to high or high to low (the Sort menu, or the arrow in a column heading), and filter by a criterion's value (for example slope at most 10%); parcels with no data for it stay visible
 - Compare up to three parcels side by side
 - Rough monthly and start-up cost estimate from rates you set
 - Print a parcel summary, or copy it as text to send to someone
@@ -137,6 +138,7 @@ Add `--headed` to watch the browser. Passing tests cannot prove a real service s
 - **v2.0.2** The main page links to the GitHub repository
 - **v2.1.0** Hover explanations on every data point and Settings option; hunting removed; a Texas details section (parcel record, groundwater district, school district, wells, pipelines, oil and gas, Edwards zone) shown only for Texas parcels; a More local conditions section (county profile, drought, weather alerts, wind, facilities); report grouped into collapsible categories. 133 unit tests.
 - **v2.2.0** A Get a free Census API key link right under the key box in Settings; the page footer shows the version and the date of the last update. 136 unit tests.
+- **v2.8.0** A Columns menu to add or remove list columns from your ticked criteria; sorting by any criterion both ways, from the Sort menu or a column heading's arrow; a value filter (at most or at least) that never hides a parcel with no data; all remembered in the browser. 188 unit tests, 247 browser checks.
 - **v2.7.1** After an update, browsers load all of the page's new files together instead of mixing cached old ones with new ones for a few minutes (each script and stylesheet link carries the version number). 184 unit tests.
 - **v2.7.0** A People and safety category: People and community (tract and county survey figures from Census Reporter, no key) replaces the county profile that needed a Census key, and Crime shows what the county sheriff reported to the FBI, compared with Texas and the US, once you add a free api.data.gov key in Settings. 183 unit tests, 229 browser checks.
 - **v2.6.1** On phones, tapping a dotted label opens its explanation and keeps it open until you tap somewhere else. Before, phones closed it at once, and tapping the words of a box (like Road detour factor) or a tick box jumped to the box or ticked it. 213 browser checks.

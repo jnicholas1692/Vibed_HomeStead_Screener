@@ -121,14 +121,63 @@ const SORTS = {
   name:     { label: "Name (A to Z)",                dir: 1,  value: (it) => it.parcel.name.toLowerCase() },
 };
 
+/* ---- a criterion as one number, for sorting and filtering the list ---- */
+
+// The unit of each criterion's number. Criteria that are a rating rather than a measurement
+// (septic, flood risk, natural hazards, ag or wildlife valuation) use their 0 to 100 score instead.
+const CRITERION_UNITS = { price: "$", slope: "%", rain: "in/year", airport: "min", internet: "Mbps", groundwater: "ft", hospital: "min", grocery: "min" };
+const criterionUnit = (key) => CRITERION_UNITS[key] || "score";
+
+// What a criterion found for a parcel, as a number in its unit, or null when there is no data.
+function criterionNumber(key, parcel, s) {
+  const site = parcel.site || {};
+  const minutes = (m) => (m == null ? null : Math.round(m));
+  switch (key) {
+    case "price": return parcel.askingPrice ?? null;
+    case "slope": return site.slopePct ?? null;
+    case "rain": return site.annualRainIn ?? null;
+    case "airport": return minutes(airportMinutes(site, s));
+    case "internet": return site.internet ? (site.internet.bestMbps ?? 0) : null;   // satellite only or none counts as 0
+    case "groundwater": return nearestWaterDepth(site.groundwater);
+    case "hospital":
+    case "grocery": return minutes(placeDriveMinutes(site, key, s));
+    default: {
+      const score = criterionScores(parcel, s)[key];
+      return score == null ? null : Math.round(score);
+    }
+  }
+}
+
+// A criterion sort is written "crit:<criterion>:asc" (low to high) or "crit:<criterion>:desc" (high to low).
+const CRITERION_SORT = /^crit:([A-Za-z]+):(asc|desc)$/;
+function isKnownSort(name) {
+  const m = CRITERION_SORT.exec(name || "");
+  return Boolean(SORTS[name] || (m && FACTOR_LABELS[m[1]]));
+}
+function sortFor(name, s) {
+  const m = CRITERION_SORT.exec(name || "");
+  if (m && FACTOR_LABELS[m[1]]) return { dir: m[2] === "asc" ? 1 : -1, value: (it) => criterionNumber(m[1], it.parcel, s) };
+  return SORTS[name] || SORTS.score;
+}
+
+// Does a parcel get through the value filter? Parcels with no data for that criterion always do, so a failed lookup
+// never hides land.
+function passesFilter(parcel, filter, s) {
+  if (!filter || !FACTOR_LABELS[filter.key] || !Number.isFinite(filter.value)) return true;
+  const v = criterionNumber(filter.key, parcel, s);
+  if (v == null) return true;
+  return filter.op === "min" ? v >= filter.value : v <= filter.value;
+}
+
 // `items` is a list of { parcel, score }. Returns a new, filtered and sorted list.
 function applyView(items, view, s) {
   const kept = items.filter(({ parcel, score }) => {
     if (view.status !== "all" && parcel.status !== view.status) return false;
     if (view.hideDealbreakers && score.dealbreakers.length > 0) return false;
+    if (!passesFilter(parcel, view.filter, s)) return false;
     return true;
   });
-  const sort = SORTS[view.sort] || SORTS.score;
+  const sort = sortFor(view.sort, s);
   return kept.sort((a, b) => {
     const va = sort.value(a, s), vb = sort.value(b, s);
     if (va == null && vb == null) return 0;
