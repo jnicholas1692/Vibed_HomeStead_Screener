@@ -218,12 +218,14 @@ def fake_service(url, post_body, mode):
 class Browser:
     """One fresh browser profile with the fake services plugged in, and a record of every outside request."""
 
-    def __init__(self, playwright, mode="happy", headed=False, viewport=None):
+    def __init__(self, playwright, mode="happy", headed=False, viewport=None, touch=False):
         self.mode = mode
         self.requests = []      # every URL the page asked for outside this site
         self.page_errors = []   # JavaScript errors the page threw
         self.browser = playwright.chromium.launch(headless=not headed)
-        self.context = self.browser.new_context(viewport=viewport or {"width": 1280, "height": 900}, accept_downloads=True)
+        # touch=True acts like a phone: a touch screen, and taps instead of mouse clicks.
+        self.context = self.browser.new_context(viewport=viewport or {"width": 1280, "height": 900}, accept_downloads=True,
+                                                has_touch=touch, is_mobile=touch)
         self.context.route("**/*", self._route)
         self.page = self.context.new_page()
         self.page.on("pageerror", lambda error: self.page_errors.append(str(error)))
@@ -797,6 +799,9 @@ def test_demo_list_compare(b):
 
     page.select_option("#sort-by", index=1)
     check("sorting keeps every parcel", page.locator("#list tr.row").count() == 4)
+    page.locator('label:has(#hide-dealbreakers) .help').click()
+    check("with a mouse, clicking a tick box's words still ticks it", page.is_checked("#hide-dealbreakers"))
+    page.uncheck("#hide-dealbreakers")
     page.check("#hide-dealbreakers")
     shown = page.locator("#list tr.row").count()
     check("Hide dealbreakers hides the flood-zone demo parcel", shown == 3 and "Low ground" not in page.text_content("#list"), f"{shown} shown")
@@ -862,7 +867,7 @@ def test_everything_down(playwright, headed):
 
 def test_phone_width(playwright, headed):
     section("Phone width")
-    b = Browser(playwright, headed=headed, viewport={"width": 375, "height": 812})
+    b = Browser(playwright, headed=headed, viewport={"width": 375, "height": 812}, touch=True)
     overflow = b.page.evaluate("() => document.documentElement.scrollWidth - document.documentElement.clientWidth")
     check("no sideways scrolling at 375 px wide", overflow <= 0, f"{overflow}px too wide")
     check("the footer version shows on a phone", b.page.is_visible("#app-version"))
@@ -871,6 +876,40 @@ def test_phone_width(playwright, headed):
     check("Settings and its sliders fit a phone without sideways scrolling", sizes[0] <= sizes[1], str(sizes))
     track = b.page.locator('.range-pair[data-pair="slope"] .dual').bounding_box()
     check("a slider is wide enough to use on a phone", track["width"] >= 250, str(round(track["width"])))
+
+    # Tapping dotted words opens their tip and leaves it open: phones send a pretend "mouse left" right after a tap,
+    # and a dotted label inside a <label> used to pass the tap on to its box. Every kind of dotted label is tried.
+    page = b.page
+    kinds = {
+        "a number box's label (Road detour factor)": 'label:has(input[data-path="detourFactor"]) .help',
+        "a box under a slider": 'label:has(input[data-path="priceTarget"]) .help',
+        "a land use tick box": 'label:has(input[data-use="farm"]) .help',
+        "a Dealbreaker switch": 'label:has(input[data-deal="septic"]) .help',
+        "a criterion name": '#c-criteria-list li[data-key="slope"] .order-name .help',
+        "a slider title": '.range-pair[data-pair="slope"] .range-head .help',
+        "a Costs and loans box": 'label:has(input[data-path="costs.downPayment"]) .help',
+    }
+    for name, selector in kinds.items():
+        if "Costs" in name:
+            page.locator("#tab-costs").tap()
+        target = page.locator(selector).first
+        target.scroll_into_view_if_needed()
+        ticked_before = page.is_checked('input[data-use="farm"]') if page.locator('input[data-use="farm"]').is_visible() else None
+        target.tap()
+        page.wait_for_timeout(400)
+        still_open = page.locator("#help-tip").count() == 1
+        focus = page.evaluate("() => document.activeElement && document.activeElement.tagName")
+        check(f"on a phone, tapping {name} keeps its tip open", still_open)
+        check(f"on a phone, tapping {name} does not jump to its box", focus != "INPUT", str(focus))
+        if ticked_before is not None and "tick box" in name:
+            check("on a phone, tapping a tick box's words does not tick it", page.is_checked('input[data-use="farm"]') == ticked_before)
+        page.locator("#criteria-title").tap()   # a tap somewhere else closes it
+        page.wait_for_timeout(150)
+        check(f"on a phone, a tap elsewhere closes the tip for {name}", page.locator("#help-tip").count() == 0)
+    page.locator("#tab-scoring").tap()
+    box = page.locator('input[data-use="farm"]')
+    box.tap()
+    check("on a phone, tapping the tick box itself still ticks it", box.is_checked())
     b.close()
 
 

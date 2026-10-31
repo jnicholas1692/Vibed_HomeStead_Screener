@@ -2,7 +2,7 @@
 
 // The version shown in the page footer and the day it was released. Change both with every release,
 // along with "version" in package.json and the README version history (tests/version.test.js checks they agree).
-const APP_VERSION = "2.6.0";
+const APP_VERSION = "2.6.1";
 const APP_UPDATED = "2026-10-31";   // year-month-day
 
 // Where sources.js keeps which map server worked last and which are resting (Clear data erases it too).
