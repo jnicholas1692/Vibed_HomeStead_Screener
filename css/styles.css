@@ -255,6 +255,12 @@
 .node-deal { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--muted); }
 .node-deal input { width: auto; }
 .flood-node { background: var(--bg); }
+/* Settings > Scoring: your criteria, each row with a tick, its name, a dealbreaker switch and Up/Down */
+.crit-list li { flex-wrap: wrap; }
+.crit-list li.active { border-color: var(--accent); }
+.crit-list input[data-crit] { width: 18px; height: 18px; flex: none; }
+.crit-list .order-name { flex: 1 1 140px; font-weight: 600; }
+.summary-table td:nth-child(2) { overflow-wrap: anywhere; }
 
   .brand .repo-link { font-size: 0.8rem; }
   .brand .repo-link a { color: var(--accent, inherit); }

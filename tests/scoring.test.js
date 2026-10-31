@@ -21,12 +21,18 @@ test("linearScore: ends, middle and limits", () => {
   assert.equal(linearScore(40, 5, 20), 0);    // worse than "worst" is capped at 0
 });
 
-test("flood zone is a yes or no with details, and is not a scored factor", () => {
+test("flood zone is a yes or no with details, and an optional criterion that starts unticked", () => {
   assert.deepEqual(plain(floodAnswer("AE")), { inZone: true, text: "Yes: zone AE, high risk" });
   assert.equal(floodAnswer("X").inZone, false);
   assert.ok(floodAnswer("X (shaded)").text.includes("moderate"));
+  assert.equal(floodAnswer("D").inZone, null);              // an unusual zone is never treated as safe
+  assert.equal(floodAnswer("D", true).inZone, true);        // FEMA's own flag settles it
   const result = scoreParcel({ site: { floodZone: "AE" } }, defaults());
-  assert.equal("flood" in plain(result.parts), false);
+  assert.equal(result.parts.flood, 0);
+  assert.equal(result.chosen.includes("flood"), false);     // not ticked by default, so it does not change the total
+  assert.equal(scoreParcel({ site: { floodZone: "X" } }, defaults()).parts.flood, 100);
+  assert.equal(scoreParcel({ site: { floodZone: "X (shaded)" } }, defaults()).parts.flood, 50);
+  assert.equal(scoreParcel({ site: {} }, defaults()).parts.flood, null);
 });
 
 test("a flood dealbreaker follows its switch", () => {
@@ -42,10 +48,31 @@ test("an unknown flood zone is not treated as safe or as a dealbreaker", () => {
   assert.equal(scoreParcel({ site: { floodZone: "AREA NOT INCLUDED" } }, defaults()).dealbreakers.length, 0);
 });
 
-test("the default skill tree spends exactly 10 points on scored factors", () => {
-  const points = plain(app.get("DEFAULT_SETTINGS.points"));
-  assert.equal(Object.values(points).reduce((a, b) => a + b, 0), 10);
-  assert.equal("flood" in points, false);
+test("default criteria: the six original ones are ticked, the five new ones are not, and every criterion is in the order", () => {
+  const c = plain(app.get("DEFAULT_SETTINGS.criteria"));
+  const labels = Object.keys(plain(app.get("FACTOR_LABELS")));
+  assert.deepEqual([...c.order].sort(), [...labels].sort());
+  assert.deepEqual(c.order.filter((k) => c.on[k]), ["septic", "airport", "price", "internet", "slope", "rain"]);
+  assert.deepEqual(c.order.filter((k) => !c.on[k]), ["flood", "groundwater", "hazards", "hospital", "grocery"]);
+  for (const key of labels) assert.ok(key in plain(app.get("DEFAULT_SETTINGS.dealbreakers")), `${key} has a dealbreaker switch`);
+});
+
+test("normalizeCriteria drops unknown keys, keeps your order, and adds missing criteria at the end", () => {
+  const c = plain(app.get("normalizeCriteria")({ order: ["price", "bogus", "price", "septic"], on: { price: true, septic: "yes", grocery: true } }));
+  assert.deepEqual(c.order.slice(0, 2), ["price", "septic"]);
+  assert.equal(c.order.length, Object.keys(plain(app.get("FACTOR_LABELS"))).length);
+  assert.equal(c.on.price, true);
+  assert.equal(c.on.septic, true);        // "yes" is not true or false, so the default (ticked) stays
+  assert.equal(c.on.grocery, true);
+  assert.equal(c.on.bogus, undefined);
+});
+
+test("old skill-tree points become criteria: points mean ticked, more points come first", () => {
+  const c = plain(app.get("criteriaFromPoints")({ septic: 1, slope: 0, rain: 1, airport: 5, price: 3, internet: 0 }));
+  assert.deepEqual(c.order.slice(0, 4), ["airport", "price", "septic", "rain"]);
+  assert.equal(c.on.slope, false);
+  assert.equal(c.on.internet, false);
+  assert.equal(c.on.grocery, false);      // new criteria start unticked
 });
 
 test("every other dealbreaker switch triggers at the worst end of its range, and only when on", () => {
@@ -109,12 +136,58 @@ test("internet: satellite-only scores 25, nothing listed scores 10, no data is s
   assert.equal(scoreInternet(undefined, s), null);
 });
 
-test("changing the points changes the total", () => {
+test("the total is the plain average of the ticked criteria that have data", () => {
   const parcel = { askingPrice: 90000, site: { floodZone: "X", septicRating: "Very limited" } };
-  const base = scoreParcel(parcel, defaults()).total;
-  const heavySeptic = defaults();
-  heavySeptic.points.septic = 10;
-  assert.ok(scoreParcel(parcel, heavySeptic).total < base);
+  const s = defaults();
+  const base = scoreParcel(parcel, s);
+  assert.equal(base.total, (100 + 15) / 2);     // price 100, septic 15; the other ticked criteria have no data
+  assert.equal(base.factorsScored, 2);
+  assert.equal(base.factorsTotal, 6);
+  s.criteria.on.septic = false;                 // untick septic: only price is left
+  assert.equal(scoreParcel(parcel, s).total, 100);
+  s.criteria.on.flood = true;                   // tick flood: zone X scores 100
+  const withFlood = scoreParcel(parcel, s);
+  assert.equal(withFlood.total, 100);
+  assert.equal(withFlood.factorsTotal, 6);
+  for (const key of Object.keys(s.criteria.on)) s.criteria.on[key] = false;
+  assert.equal(scoreParcel(parcel, s).total, null);   // nothing ticked means no score
+});
+
+test("the chosen criteria follow your order", () => {
+  const s = defaults();
+  s.criteria.order = ["rain", "price", ...s.criteria.order.filter((k) => k !== "rain" && k !== "price")];
+  assert.deepEqual(plain(scoreParcel({ site: {} }, s).chosen).slice(0, 3), ["rain", "price", "septic"]);
+});
+
+test("the new criteria score from their data", () => {
+  const s = defaults();
+  const site = {
+    groundwater: { wells: [{ depthFt: 225, distanceMiles: 2 }], searchedMiles: 17 },
+    hazards: { overall: "Relatively Low", overallLevel: 1, hazards: [] },
+    places: { hospital: { name: "General", miles: 30, driveMin: 40 }, grocery: { name: "Market", miles: 20 } },
+  };
+  const parts = plain(scoreParcel({ site }, s).parts);
+  near(parts.groundwater, 50);                  // halfway between 50 ft and 400 ft
+  assert.equal(parts.hazards, 75);
+  assert.equal(parts.hospital, 50);             // 40 min, halfway between 20 and 60
+  // No routed time for the grocery, so it uses the estimate: 20 mi x 1.3 / 55 mph = about 28.4 min.
+  near(parts.grocery, (45 - 20 * 1.3 / 55 * 60) / 30 * 100, 0.1);
+  assert.equal(plain(scoreParcel({ site: {} }, s).parts).groundwater, null);
+  const text = app.get("criterionValueText");
+  assert.equal(text("hospital", { site }, s), "40 min to General");
+  assert.equal(text("grocery", { site }, s, true), "28 min");
+  assert.equal(text("groundwater", { site }, s), "225 ft at 2 mi");
+  assert.equal(text("hospital", { site: {} }, s), "no data");
+  assert.equal(text("hospital", { site: { places: { hospital: null } } }, s), "none found");
+});
+
+test("dealbreakers for the new criteria follow their switches", () => {
+  const s = defaults();
+  const site = { groundwater: { wells: [{ depthFt: 500, distanceMiles: 1 }] }, hazards: { overallLevel: 4, overall: "Very High", hazards: [] },
+    places: { hospital: { name: "H", miles: 80, driveMin: 90 }, grocery: { name: "G", miles: 60, driveMin: 70 } } };
+  assert.equal(scoreParcel({ site }, s).dealbreakers.length, 0);
+  for (const key of ["groundwater", "hazards", "hospital", "grocery"]) s.dealbreakers[key] = true;
+  assert.equal(scoreParcel({ site }, s).dealbreakers.length, 4);
 });
 
 test("airport over the limit is a dealbreaker", () => {

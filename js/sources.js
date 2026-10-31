@@ -132,18 +132,38 @@ function inUnitedStates(lat, lon) {
 }
 
 const FEMA_FLOOD_LAYER = 28; // "Flood Hazard Zones" in FEMA's National Flood Hazard Layer
-async function lookupFlood(lat, lon) {
+
+// One FEMA flood zone record -> { zone, sfha, bfeFt }.
+// SFHA_TF is "T" when FEMA counts the spot as a special flood hazard area (the 1%-a-year flood), "F" when not.
+// STATIC_BFE is the base flood elevation in feet (how high that flood reaches); FEMA uses -9999 for "none given".
+function parseFloodZone(attributes) {
+  const { FLD_ZONE: zone, ZONE_SUBTY: subtype, SFHA_TF: sfhaFlag, STATIC_BFE: bfe } = attributes;
+  const shaded = zone === "X" && String(subtype || "").toUpperCase().includes("0.2 PCT");
+  const bfeFt = Number(bfe);
+  return {
+    zone: shaded ? "X (shaded)" : zone,
+    sfha: sfhaFlag === "T" ? true : sfhaFlag === "F" ? false : null,
+    bfeFt: Number.isFinite(bfeFt) && bfeFt > -9000 ? Math.round(bfeFt * 10) / 10 : null,
+  };
+}
+
+// The zone plus the two extra facts, or null when FEMA has not mapped the spot.
+async function lookupFloodDetails(lat, lon) {
   const params = new URLSearchParams({
     geometry: `${lon},${lat}`, geometryType: "esriGeometryPoint", inSR: "4326",
-    spatialRel: "esriSpatialRelIntersects", outFields: "FLD_ZONE,ZONE_SUBTY",
+    spatialRel: "esriSpatialRelIntersects", outFields: "FLD_ZONE,ZONE_SUBTY,SFHA_TF,STATIC_BFE",
     returnGeometry: "false", f: "json",
   });
   const data = await getJSON(`https://hazards.fema.gov/arcgis/rest/services/public/NFHL/MapServer/${FEMA_FLOOD_LAYER}/query?${params}`);
   if (data.error) throw new Error("FEMA service error");
   if (!data.features || data.features.length === 0) return null; // not mapped
-  const { FLD_ZONE: zone, ZONE_SUBTY: subtype } = data.features[0].attributes;
-  if (zone === "X" && String(subtype || "").toUpperCase().includes("0.2 PCT")) return "X (shaded)";
-  return zone;
+  return parseFloodZone(data.features[0].attributes);
+}
+
+// Just the zone, like "AE" or "X (shaded)".
+async function lookupFlood(lat, lon) {
+  const details = await lookupFloodDetails(lat, lon);
+  return details ? details.zone : null;
 }
 
 async function elevationFt(lat, lon) {
@@ -166,6 +186,20 @@ function offsetPoint(lat, lon, northM, eastM) {
   return [lat + northM / metersPerDegreeLat, lon + eastM / metersPerDegreeLon];
 }
 
+// Which way the ground slopes down, from the elevation 60 m north, south, east and west (in feet) and that distance in meters.
+// Returns "north", "southeast" and so on, "flat" when the change is under 1% either way, or null if a point is missing.
+const COMPASS = ["north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest"];
+function slopeFacing(north, south, east, west, spacingM) {
+  if ([north, south, east, west].some((v) => v == null || !Number.isFinite(v))) return null;
+  // Rise per meter going east and going north (feet turned into meters), measured across both neighbors.
+  const riseEast = (east - west) * 0.3048 / (2 * spacingM);
+  const riseNorth = (north - south) * 0.3048 / (2 * spacingM);
+  if (Math.hypot(riseEast, riseNorth) * 100 < 1) return "flat";
+  // Downhill is the opposite way to the rise. atan2(east, north) gives a compass bearing: 0 is north, 90 is east.
+  const bearing = (Math.atan2(-riseEast, -riseNorth) * 180 / Math.PI + 360) % 360;
+  return COMPASS[Math.round(bearing / 45) % 8];
+}
+
 // Elevation at the center plus a rough slope: the steepest change to four points 60 m away.
 // All five requests start at once, because this service is slow and they do not depend on each other.
 async function lookupTerrain(lat, lon) {
@@ -177,14 +211,14 @@ async function lookupTerrain(lat, lon) {
   });
   const center = await centerRequest;              // a real failure here is reported as a failure
   if (center == null) throw new Error("No elevation data at this point");
-  const others = await Promise.all(neighborRequests);
+  const others = await Promise.all(neighborRequests);   // north, south, east, west
   let steepest = 0;
   for (const other of others) {
     if (other == null) continue;
     const riseM = Math.abs(other - center) * 0.3048;
     steepest = Math.max(steepest, riseM / d * 100); // slope percent = rise / run * 100
   }
-  return { elevationFt: Math.round(center * 10) / 10, slopePct: Math.round(steepest * 10) / 10 };
+  return { elevationFt: Math.round(center * 10) / 10, slopePct: Math.round(steepest * 10) / 10, slopeFacing: slopeFacing(...others, d) };
 }
 
 // Sends one query to USDA Soil Data Access and returns the rows as objects, like [{ soil_name: "...", ... }].
@@ -259,7 +293,7 @@ const num = (value) => (value === null || value === undefined || value === "" ? 
 function summarizeHorizons(rows) {
   const layers = rows.map((r) => ({
     top: num(r.hzdept_r), bottom: num(r.hzdepb_r), awc: num(r.awc_r), clay: num(r.claytotal_r), sand: num(r.sandtotal_r),
-    silt: num(r.silttotal_r), om: num(r.om_r), ph: num(r.ph1to1h2o_r), lep: num(r.lep_r),
+    silt: num(r.silttotal_r), om: num(r.om_r), ph: num(r.ph1to1h2o_r), lep: num(r.lep_r), ksat: num(r.ksat_r),
   })).filter((l) => Number.isFinite(l.top) && Number.isFinite(l.bottom)).sort((a, b) => a.top - b.top);
   if (layers.length === 0) return null;
   const topsoil = layers[0];
@@ -274,13 +308,29 @@ function summarizeHorizons(rows) {
   }
   const leps = layers.filter((l) => l.top < 100 && Number.isFinite(l.lep)).map((l) => l.lep);
   const worstLep = leps.length ? Math.max(...leps) : NaN;
+  // Water moves through the soil only as fast as its slowest layer allows, so keep the slowest one in the top 5 feet.
+  const ksats = layers.filter((l) => l.top < limitCm && Number.isFinite(l.ksat)).map((l) => l.ksat);
+  const slowest = ksats.length ? Math.min(...ksats) : NaN;
   return {
     texture: textureClass(topsoil.sand, topsoil.silt, topsoil.clay),
     clayPct: round1(topsoil.clay), sandPct: round1(topsoil.sand), siltPct: round1(topsoil.silt),
     organicMatterPct: round1(topsoil.om), ph: round1(topsoil.ph),
     waterHoldingIn: hasWater ? round1(waterCm / 2.54) : null,
     shrinkSwell: shrinkSwellClass(worstLep),
+    permeability: Number.isFinite(slowest) ? { umPerSec: slowest < 1 ? Math.round(slowest * 100) / 100 : Math.round(slowest * 10) / 10, rating: permeabilityClass(slowest) } : null,
   };
+}
+
+// NRCS classes for saturated hydraulic conductivity ("Ksat"), in micrometers per second: how fast water soaks through.
+// Septic drain fields need water to soak in, but not so fast that it reaches groundwater untreated.
+function permeabilityClass(umPerSec) {
+  if (!Number.isFinite(umPerSec)) return null;
+  if (umPerSec < 0.01) return "Very low";
+  if (umPerSec < 0.1) return "Low";
+  if (umPerSec < 1) return "Moderately low";
+  if (umPerSec < 10) return "Moderately high";
+  if (umPerSec < 100) return "High";
+  return "Very high";
 }
 
 // Flooding and ponding come as one value per month. We keep the most frequent one, using these orders.
@@ -341,7 +391,7 @@ async function lookupSoilDetails(lat, lon) {
       FROM component c INNER JOIN mapunit mu ON mu.mukey = c.mukey
       WHERE c.cokey = ${comp}`,
     flood: `SELECT DISTINCT m.flodfreqcl AS flood, m.pondfreqcl AS pond FROM comonth m WHERE m.cokey = ${comp}`,
-    horizons: `SELECT h.hzdept_r, h.hzdepb_r, h.awc_r, h.claytotal_r, h.sandtotal_r, h.silttotal_r, h.om_r, h.ph1to1h2o_r, h.lep_r
+    horizons: `SELECT h.hzdept_r, h.hzdepb_r, h.awc_r, h.claytotal_r, h.sandtotal_r, h.silttotal_r, h.om_r, h.ph1to1h2o_r, h.lep_r, h.ksat_r
       FROM chorizon h WHERE h.cokey = ${comp} ORDER BY h.hzdept_r`,
     interps: `SELECT ci.mrulename AS rule, ci.interphrc AS rating FROM cointerp ci
       WHERE ci.cokey = ${comp} AND ci.mrulename IN (${Object.keys(SOIL_INTERPS).map((r) => `'${r}'`).join(", ")})`,
@@ -780,11 +830,14 @@ function parseHazards(data) {
     hazards.push({ name, rating: HAZARD_LEVELS[level], level });
   }
   hazards.sort((x, y) => y.level - x.level || x.name.localeCompare(y.name));
+  const ratingOrNull = (v) => (HAZARD_LEVELS.includes(v) ? v : null);
   return {
     overall: a.RISK_RATNG || "No rating",
     overallLevel: HAZARD_LEVELS.indexOf(a.RISK_RATNG),   // -1 when there is no usable rating
     hazards,
     unrated,
+    socialVulnerability: ratingOrNull(a.SOVI_RATNG),     // how hard a disaster hits the people living here
+    resilience: ratingOrNull(a.RESL_RATNG),              // how well the community can recover
   };
 }
 
@@ -1230,6 +1283,41 @@ async function lookupEcho(lat, lon) {
   return summarizeEcho(await getJSON(`${ECHO_URL}?${q}`, {}, 40000));
 }
 
+// OpenFEMA: federal disaster and emergency declarations that named this county in the last DISASTER_YEARS years.
+const OPENFEMA_URL = "https://www.fema.gov/api/open/v2/DisasterDeclarationsSummaries";
+const DISASTER_YEARS = 10;
+
+// Rows -> { count, since, recent: [{ date, type, kind }], types: ["Flood", ...] }. FEMA lists a disaster once per
+// county it covers, but repeats can happen, so each disaster number is counted once.
+function summarizeDisasters(rows, since) {
+  if (!Array.isArray(rows)) return null;
+  const seen = new Set();
+  const unique = [];
+  for (const r of rows) {
+    if (!r || seen.has(r.disasterNumber)) continue;
+    seen.add(r.disasterNumber);
+    unique.push(r);
+  }
+  unique.sort((a, b) => String(b.declarationDate).localeCompare(String(a.declarationDate)));
+  // "DR" is a major disaster, "EM" an emergency and "FM" a fire management declaration.
+  const kinds = { DR: "major disaster", EM: "emergency", FM: "fire management" };
+  return {
+    count: unique.length, since,
+    recent: unique.slice(0, 3).map((r) => ({ date: String(r.declarationDate || "").slice(0, 10), type: r.incidentType || "?", kind: kinds[r.declarationType] || r.declarationType || "" })),
+    types: topCounts(unique.map((r) => r.incidentType).filter(Boolean), 4),
+  };
+}
+
+async function lookupDisasters(stateFips, countyFips) {
+  if (!stateFips || !countyFips) return null;
+  const since = new Date(Date.now() - DISASTER_YEARS * 365.25 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  // OpenFEMA uses OData: $filter picks rows and $select picks columns. Built by hand so spaces become %20 (not "+").
+  const filter = `fipsStateCode eq '${stateFips}' and fipsCountyCode eq '${countyFips}' and declarationDate ge '${since}'`;
+  const url = `${OPENFEMA_URL}?$filter=${encodeURIComponent(filter)}&$select=disasterNumber,declarationDate,incidentType,declarationType&$orderby=declarationDate%20desc&$top=1000`;
+  const data = await getJSON(url, {}, 30000);
+  return summarizeDisasters(data.DisasterDeclarationsSummaries, since);
+}
+
 // Each piece is looked up on its own, like the Texas details: `failed` lists the pieces that did not answer.
 async function lookupMore(parcel, censusKey) {
   const { lat, lon, stateFips, countyFips } = parcel;
@@ -1240,6 +1328,7 @@ async function lookupMore(parcel, censusKey) {
     weather: () => lookupNws(lat, lon),
     wind: () => lookupPower(lat, lon),
     facilities: () => lookupEcho(lat, lon),
+    disasters: () => lookupDisasters(stateFips, countyFips),
   };
   const names = Object.keys(jobs);
   const settled = await Promise.allSettled(names.map((n) => jobs[n]()));
@@ -1301,6 +1390,18 @@ function field(attributes, name) {
   return value === null || value === undefined || /^\s*(null)?\s*$/i.test(String(value)) ? null : value;
 }
 
+// The parcel's boundary as [[lat, lon], ...] for the map, from an ArcGIS polygon in latitude/longitude (wkid 4326).
+// Only the outer ring is kept, thinned to at most 400 corners and rounded to about 10 cm, so it stays small in storage.
+function parcelOutline(geometry) {
+  const sr = geometry && geometry.spatialReference;
+  if (!geometry || !Array.isArray(geometry.rings) || !geometry.rings.length) return null;
+  if (sr && sr.wkid !== 4326 && sr.latestWkid !== 4326) return null;   // some other map projection: better to show nothing
+  const ring = geometry.rings[0];
+  const step = Math.max(1, Math.ceil(ring.length / 400));
+  const points = ring.filter((_, i) => i % step === 0).map(([lon, lat]) => [Math.round(lat * 1e6) / 1e6, Math.round(lon * 1e6) / 1e6]);
+  return points.length >= 3 && points.every(([lat, lon]) => Number.isFinite(lat) && Number.isFinite(lon)) ? points : null;
+}
+
 // The appraisal district's record for the parcel under the point. The owner's name and addresses are deliberately not kept.
 function summarizeTxParcel(features) {
   if (!features.length) return null;
@@ -1317,6 +1418,7 @@ function summarizeTxParcel(features) {
     landUse: field(a, "loc_land_use") || field(a, "stat_land_use"),
     taxYear: field(a, "tax_year"),
     county: field(a, "county"),
+    outline: parcelOutline(features[0].geometry),
   };
 }
 
@@ -1351,10 +1453,10 @@ async function lookupTexas(lat, lon) {
     parcel: async () => {
       const d = 0.0005;   // a box about 160 feet wide around the point, which identify needs to know the map scale
       const q = new URLSearchParams({ f: "json", geometry: `${lon},${lat}`, geometryType: "esriGeometryPoint", sr: "4326", layers: "all:0", tolerance: "2",
-        mapExtent: `${lon - d},${lat - d},${lon + d},${lat + d}`, imageDisplay: "400,400,96", returnGeometry: "false" });
+        mapExtent: `${lon - d},${lat - d},${lon + d},${lat + d}`, imageDisplay: "400,400,96", returnGeometry: "true" });
       const data = await getJSON(`${TXGIO_PARCELS_URL}?${q}`, {}, 40000);
       if (data.error) throw new Error("Texas parcels service error");
-      return summarizeTxParcel((data.results || []).map((r) => ({ attributes: r.attributes })));
+      return summarizeTxParcel((data.results || []).map((r) => ({ attributes: r.attributes, geometry: r.geometry })));
     },
     groundwaterDistrict: async () => {
       const { features } = await arcgisFeatures(TWDB_GCD_URL, atPoint(lat, lon, "DistrictName"), "Groundwater districts");
@@ -1400,7 +1502,12 @@ async function lookupTexas(lat, lon) {
 
 const SOURCE_STEPS = [
   ["County",   async (p) => { Object.assign(p, await lookupCounty(p.lat, p.lon)); }],
-  ["Flood",    async (p) => { p.site.floodZone = await lookupFlood(p.lat, p.lon); }],
+  ["Flood",    async (p) => {
+    const flood = await lookupFloodDetails(p.lat, p.lon);
+    p.site.floodZone = flood ? flood.zone : null;
+    p.site.floodSfha = flood ? flood.sfha : null;
+    p.site.floodBfeFt = flood ? flood.bfeFt : null;
+  }],
   ["Terrain",  async (p) => { Object.assign(p.site, await lookupTerrain(p.lat, p.lon)); }],
   ["Soil",     async (p) => { Object.assign(p.site, (await lookupSoil(p.lat, p.lon)) || {}); }],
   ["Soil details", async (p) => { p.site.soilDetails = await lookupSoilDetails(p.lat, p.lon); }],

@@ -358,9 +358,13 @@ test("buildComparison: marks the best value per row and handles missing data", (
   const a = { name: "A", askingPrice: 100000, acres: 10, status: "new", site: { floodZone: "X", slopePct: 3, airportMiles: 20, nearestAirport: "Austin (AUS)",
     internet: { bestMbps: 100, technologies: ["Cable"], providers: [] }, places: { grocery: place("Market", 10), hardware: null, costco: null, feed: null, vet: null } } };
   const b = { name: "B", askingPrice: 80000, acres: 20, status: "interested", site: { floodZone: "AE", slopePct: 8 } };
+  // Only Internet is ticked here, so the usual rows for price, slope and the rest are all shown.
+  for (const key of Object.keys(s.criteria.on)) s.criteria.on[key] = key === "internet";
   const items = [a, b].map((parcel) => ({ parcel, score: scoreParcel(parcel, s) }));
   const rows = plain(buildComparison(items, s));
   const get = (label) => rows.find((r) => r.label === label);
+  assert.equal(rows[2].label, "Internet");                                              // your criteria come right after the score
+  assert.equal(get("Internet (best non-satellite)"), undefined);                        // so the usual internet row is not repeated
   assert.deepEqual(get("Asking price").cells.map((c) => c.best), [false, true]);        // cheaper wins
   assert.deepEqual(get("Price per acre").cells.map((c) => c.text), ["$10,000", "$4,000"]);
   assert.deepEqual(get("Price per acre").cells.map((c) => c.best), [false, true]);
@@ -374,7 +378,14 @@ test("buildComparison: marks the best value per row and handles missing data", (
   assert.equal(get("Elementary school").cells[0].text, "not looked up");
   assert.equal(get("Fire station").cells[0].text, "not looked up");                 // parcel saved before schools existed
   assert.match(get("Dealbreakers").cells[1].text, /flood/i);
-  assert.equal(get("Score").cells.filter((c) => c.best).length, 1);                     // exactly one parcel scores higher
+  // With the default criteria both parcels have a score, and exactly one scores higher.
+  const d = plain(app.get("DEFAULT_SETTINGS"));
+  const withDefaults = plain(buildComparison([a, b].map((parcel) => ({ parcel, score: scoreParcel(parcel, d) })), d));
+  assert.equal(withDefaults.find((r) => r.label === "Score").cells.filter((c) => c.best).length, 1);
+  // Your ticked criteria come first, in your order, and their usual rows are not repeated.
+  assert.deepEqual(withDefaults.slice(2, 8).map((r) => r.label), ["Septic suitability", "Airport distance", "Price", "Internet", "Slope", "Rainfall"]);
+  assert.equal(withDefaults.find((r) => r.label === "Asking price"), undefined);
+  assert.match(withDefaults.find((r) => r.label === "Slope").cells[0].text, /^3% \(score 100\)$/);
 });
 
 // ---- plain-text summary ----
@@ -1131,14 +1142,18 @@ test("saved settings with the old percent down payment become dollars", () => {
   assert.equal(loaded.costs.downPct, undefined);
 });
 
-test("saved settings with old weights become 10 points, flood is dropped and the switches keep their old behavior", () => {
+test("saved settings with old weights become ticked criteria, flood stays unticked and the switches keep their old behavior", () => {
   const storage = loadScripts(["config.js", "scoring.js", "sources.js", "storage.js"], {
     localStorage: { getItem: (k) => (k.includes("settings") ? JSON.stringify({ weights: { flood: 25, septic: 15, slope: 10, rain: 10, airport: 15, price: 20, hunting: 5, internet: 10 } }) : null), setItem() {}, removeItem() {} },
     document: { getElementById: () => ({ hidden: true }) },
   });
   const loaded = plain(storage.get("loadSettings")());
-  assert.equal(Object.values(loaded.points).reduce((a, b) => a + b, 0), 10);
+  const ticked = loaded.criteria.order.filter((k) => loaded.criteria.on[k]);
+  assert.deepEqual([...ticked].sort(), ["airport", "internet", "price", "rain", "septic", "slope"]);
+  assert.equal(ticked[0], "price");             // price had the biggest weight, so it comes first
+  assert.equal(loaded.criteria.on.flood, false);
   assert.equal(loaded.weights, undefined);
+  assert.equal(loaded.points, undefined);
   assert.equal(loaded.dealbreakers.flood, true);
   assert.equal(loaded.dealbreakers.airport, true);
   assert.equal(loaded.dealbreakers.price, false);

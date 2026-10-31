@@ -130,6 +130,10 @@ test("lookupMore keeps going when one service fails", async () => {
     "api.weather.gov/points": json({ properties: { cwa: "EWX" } }), "api.weather.gov/alerts": json({ features: [] }),
     "power.larc.nasa.gov": json({ properties: { parameter: { WS10M: { ANN: 3 }, RH2M: { ANN: 50 } } } }),
     "echodata.epa.gov": json({ Results: { QueryRows: "0" } }),
+    "www.fema.gov/api/open": json({ DisasterDeclarationsSummaries: [
+      { disasterNumber: 3649, declarationDate: "2026-07-18T00:00:00.000Z", incidentType: "Flood", declarationType: "EM" },
+      { disasterNumber: 4705, declarationDate: "2023-04-21T00:00:00.000Z", incidentType: "Winter Storm", declarationType: "DR" },
+      { disasterNumber: 3649, declarationDate: "2026-07-18T00:00:00.000Z", incidentType: "Flood", declarationType: "EM" }] }),
   });
   const app = loadScripts(["config.js", "scoring.js", "sources.js"], { fetch });
   const more = plain(await app.get("lookupMore")({ lat: 30.2, lon: -98.4, stateFips: "48", countyFips: "031" }, ""));
@@ -137,4 +141,9 @@ test("lookupMore keeps going when one service fails", async () => {
   assert.equal(more.countyProfile.population, 100);
   assert.equal(more.weather.office, "EWX");
   assert.equal(more.facilities.facilities, 0);
+  assert.equal(more.disasters.count, 2);                         // the repeated disaster counts once
+  assert.deepEqual(more.disasters.recent[0], { date: "2026-07-18", type: "Flood", kind: "emergency" });
+  // The OData filter names the county and is spelled with %20, not "+", for the spaces.
+  const call = fetch.calls.find((c) => c.url.includes("www.fema.gov")).url;
+  assert.match(call, /\$filter=fipsStateCode%20eq%20'48'%20and%20fipsCountyCode%20eq%20'031'%20and%20declarationDate%20ge%20'\d{4}-\d{2}-\d{2}'/);
 });

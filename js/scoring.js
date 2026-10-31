@@ -34,13 +34,37 @@ function airportMinutes(site, s) {
   return null;
 }
 
-// Flood zone is not scored. It is a yes or no with the details: {inZone: true|false|null, text}.
-function floodAnswer(zone) {
+// The flood zone as a yes or no with the details: {inZone: true|false|null, text}.
+// `sfha` is FEMA's own flag for a special flood hazard area (true, false or null). It settles zones with unusual labels.
+function floodAnswer(zone, sfha) {
   if (!zone) return { inZone: null, text: "Unknown (not mapped or lookup failed)" };
-  if (HIGH_RISK_FLOOD_ZONES.has(zone)) return { inZone: true, text: `Yes: zone ${zone}, high risk` };
+  if (HIGH_RISK_FLOOD_ZONES.has(zone) || sfha === true) return { inZone: true, text: `Yes: zone ${zone}, high risk` };
   if (zone === "X (shaded)") return { inZone: false, text: "No: zone X (shaded), moderate risk" };
   if (zone === "X") return { inZone: false, text: "No: zone X, minimal risk" };
   return { inZone: null, text: `Unknown (zone ${zone})` };   // unusual labels are never treated as safe
+}
+
+// Flood risk as a criterion: zone X 100, shaded X 50, high risk 0; unmapped or unusual zones are skipped.
+function scoreFlood(site) {
+  const answer = floodAnswer(site.floodZone, site.floodSfha);
+  if (answer.inZone === true) return 0;
+  if (site.floodZone === "X") return 100;
+  if (site.floodZone === "X (shaded)") return 50;
+  return null;
+}
+
+// FEMA's five ratings, best first, as scores.
+const HAZARD_SCORES = [100, 75, 50, 25, 0];
+const scoreHazards = (hazards) => (hazards && hazards.overallLevel >= 0 ? HAZARD_SCORES[hazards.overallLevel] : null);
+
+// Depth to water at the nearest monitoring well (the first in the list), or null.
+const nearestWaterDepth = (gw) => (gw && gw.wells && gw.wells.length ? gw.wells[0].depthFt : null);
+
+// Drive minutes to one kind of nearby place (routed when we have it), or null when none was found.
+function placeDriveMinutes(site, kind, s) {
+  const place = (site.places || {})[kind];
+  if (!place) return null;
+  return place.driveMin != null ? place.driveMin : driveMinutes(place.miles, s);
 }
 
 function scoreInternet(internet, s) {
@@ -57,7 +81,7 @@ function findDealbreakers(parcel, s, parts) {
   const found = [];
   const site = parcel.site || {};
   const on = s.dealbreakers || {};
-  if (on.flood && HIGH_RISK_FLOOD_ZONES.has(site.floodZone)) found.push("High-risk flood zone");
+  if (on.flood && floodAnswer(site.floodZone, site.floodSfha).inZone === true) found.push("High-risk flood zone");
   if (on.septic && site.septicRating === "Very limited") found.push("Soil is very limited for a septic system");
   if (on.slope && parts.slope === 0) found.push(`Slope is ${s.slopeMax}% or steeper`);
   if (on.rain && parts.rain === 0) found.push(`Rainfall is ${s.rainZero} inches a year or less`);
@@ -71,6 +95,10 @@ function findDealbreakers(parcel, s, parts) {
     if (site.internet.bestMbps == null) found.push("No wired or fixed wireless internet");
     else if (parts.internet === 0) found.push(`Internet is ${s.internetZeroMbps} Mbps or slower`);
   }
+  if (on.groundwater && parts.groundwater === 0) found.push(`Groundwater is ${s.groundwaterZeroFt} ft or deeper at the nearest well`);
+  if (on.hazards && parts.hazards === 0) found.push("FEMA rates natural hazard risk Very High");
+  if (on.hospital && parts.hospital === 0) found.push(`Hospital is ${s.hospitalMaxMin} minutes or more away`);
+  if (on.grocery && parts.grocery === 0) found.push(`Grocery store is ${s.groceryMaxMin} minutes or more away`);
   return found;
 }
 
@@ -201,7 +229,7 @@ function summaryText(parcel, s) {
   const site = parcel.site || {};
   const lines = [];
   lines.push(`${parcel.name} - ${countyLabel(parcel)}`);
-  lines.push(`Score: ${score.total == null ? "n/a" : Math.round(score.total) + " out of 100"} (${score.factorsScored} of ${score.factorsTotal} factors had data)`);
+  lines.push(`Score: ${score.total == null ? "n/a" : Math.round(score.total) + " out of 100"} (${score.factorsScored} of ${score.factorsTotal} of your criteria had data)`);
   const perAcre = parcel.askingPrice != null && parcel.acres > 0 ? `, ${money(parcel.askingPrice / parcel.acres)} per acre` : "";
   lines.push(`Asking price: ${money(parcel.askingPrice)} for ${parcel.acres ?? "?"} acres${perAcre}`);
   lines.push(`Dealbreakers: ${score.dealbreakers.length ? score.dealbreakers.join("; ") : "none"}`);
@@ -338,6 +366,7 @@ function sourceKeysUsed(parcel) {
     if (okm("weather")) used.push("nws");
     if (okm("wind")) used.push("power");
     if (okm("facilities")) used.push("echo");
+    if (okm("disasters") && more.disasters) used.push("femaDisasters");
   }
   const tx = site.texas;
   if (tx) {
@@ -482,7 +511,22 @@ function buildComparison(items, s) {
 
   row("Score", items.map((it) => it.score.total), items.map((it) => scoreText(it.score.total)), "larger");
   row("Dealbreakers", items.map(() => null), items.map((it) => it.score.dealbreakers.length ? it.score.dealbreakers.join("; ") : "None"));
-  row("Asking price", items.map((it) => it.parcel.askingPrice), items.map((it) => money(it.parcel.askingPrice)), "smaller");
+  // Your ticked criteria, in your order. The star goes to the best score, and each cell shows what was found and its score.
+  const chosen = chosenCriteria(s);
+  for (const key of chosen) {
+    const scores = items.map((it) => criterionScores(it.parcel, s)[key]);
+    row(FACTOR_LABELS[key], scores, items.map((it, i) => (scores[i] == null ? criterionValueText(key, it.parcel, s)
+      : `${criterionValueText(key, it.parcel, s)} (score ${Math.round(scores[i])})`)), "larger");
+  }
+  // These usual rows say the same thing as a ticked criterion, so they are left out when it is ticked.
+  const sameAs = {
+    price: "Asking price", flood: "In a flood zone?", septic: "Septic suitability", slope: "Slope", rain: "Rain per year",
+    airport: "Drive to airport", internet: "Internet (best non-satellite)", groundwater: "Groundwater depth (nearest well)",
+    hazards: "Natural hazard risk (FEMA)", hospital: "Hospital (emergency)", grocery: "Grocery store",
+  };
+  const covered = new Set(chosen.map((key) => sameAs[key]));
+  const rowUnlessCovered = (label, ...rest) => { if (!covered.has(label)) row(label, ...rest); };
+  rowUnlessCovered("Asking price", items.map((it) => it.parcel.askingPrice), items.map((it) => money(it.parcel.askingPrice)), "smaller");
   const perAcre = items.map((it) => (it.parcel.askingPrice != null && it.parcel.acres > 0 ? it.parcel.askingPrice / it.parcel.acres : null));
   row("Price per acre", perAcre, perAcre.map(money), "smaller");
   const costs = items.map((it) => estimateCosts(it.parcel, s));
@@ -491,17 +535,17 @@ function buildComparison(items, s) {
   const usda = items.map((it) => site(it).usda);
   row("USDA loan area", usda.map((u) => (u ? (u.eligibleArea ? 1 : 0) : null)), usda.map((u) => (u === undefined ? "not looked up" : u === null ? "no data" : (u.eligibleArea ? "Yes" : "No"))), "larger");
   row("Acres", items.map((it) => it.parcel.acres), items.map((it) => it.parcel.acres ?? "?"));
-  row("In a flood zone?", items.map(() => null), items.map((it) => floodAnswer(site(it).floodZone).text));
-  row("Septic suitability", items.map(() => null), items.map((it) => site(it).septicRating || "unknown"));
-  row("Slope", items.map((it) => site(it).slopePct ?? null), items.map((it) => (site(it).slopePct == null ? "unknown" : site(it).slopePct + "%")), "smaller");
-  row("Rain per year", items.map(() => null), items.map((it) => (site(it).annualRainIn == null ? "unknown" : site(it).annualRainIn + " in")));
+  rowUnlessCovered("In a flood zone?", items.map(() => null), items.map((it) => floodAnswer(site(it).floodZone, site(it).floodSfha).text));
+  rowUnlessCovered("Septic suitability", items.map(() => null), items.map((it) => site(it).septicRating || "unknown"));
+  rowUnlessCovered("Slope", items.map((it) => site(it).slopePct ?? null), items.map((it) => (site(it).slopePct == null ? "unknown" : site(it).slopePct + "%")), "smaller");
+  rowUnlessCovered("Rain per year", items.map(() => null), items.map((it) => (site(it).annualRainIn == null ? "unknown" : site(it).annualRainIn + " in")));
   const airport = items.map((it) => airportMinutes(site(it), s));
-  row("Drive to airport", airport, items.map((it, i) => (airport[i] == null ? "unknown" : `${Math.round(airport[i])} min (${site(it).nearestAirport})`)), "smaller");
+  rowUnlessCovered("Drive to airport", airport, items.map((it, i) => (airport[i] == null ? "unknown" : `${Math.round(airport[i])} min (${site(it).nearestAirport})`)), "smaller");
   const mbps = items.map((it) => (site(it).internet ? (site(it).internet.bestMbps == null ? 0 : site(it).internet.bestMbps) : null));
-  row("Internet (best non-satellite)", mbps, items.map((it, i) => (mbps[i] == null ? "unknown" : (mbps[i] === 0 ? "Satellite or none listed" : mbps[i] + " Mbps"))), "larger");
+  rowUnlessCovered("Internet (best non-satellite)", mbps, items.map((it, i) => (mbps[i] == null ? "unknown" : (mbps[i] === 0 ? "Satellite or none listed" : mbps[i] + " Mbps"))), "larger");
   for (const kind of PLACE_KINDS) {
     const minutes = items.map((it) => { const place = (site(it).places || {})[kind.key]; return place ? placeMinutes(place, s) : null; });
-    row(kind.label, minutes, items.map((it, i) => {
+    rowUnlessCovered(kind.label, minutes, items.map((it, i) => {
       const places = site(it).places;
       if (!places) return "unknown";
       const place = places[kind.key];
@@ -516,7 +560,7 @@ function buildComparison(items, s) {
   row("Mapped wetlands", wetlands.map((w) => (w ? (w.onWetland ? 1000 : w.nearbyCount) : null)),
     wetlands.map((w) => (w === undefined ? "not looked up" : w === null ? "no data" : wetlandText(w))), "smaller");
   const gws = items.map((it) => site(it).groundwater);
-  row("Groundwater depth (nearest well)", gws.map((g) => (g && g.wells.length ? g.wells[0].depthFt : null)), gws.map(groundwaterText), "smaller");   // shallower is cheaper to drill, but see the report's notes
+  rowUnlessCovered("Groundwater depth (nearest well)", gws.map((g) => (g && g.wells.length ? g.wells[0].depthFt : null)), gws.map(groundwaterText), "smaller");   // shallower is cheaper to drill, but see the report's notes
   const roads = items.map((it) => site(it).roads);
   const roadCells = (pick) => roads.map((r) => (r === undefined ? "not looked up" : r === null ? "no data" : roadText(pick(r))));
   row("Nearest road", roads.map((r) => (r && r.nearest ? r.nearest.distanceFt : null)), roadCells((r) => r.nearest), "smaller");
@@ -541,7 +585,7 @@ function buildComparison(items, s) {
   row("Shrink-swell", soils.map((sd) => (sd && sd.shrinkSwell ? ["Low", "Moderate", "High", "Very high"].indexOf(sd.shrinkSwell) : null)), soilText((sd) => sd.shrinkSwell || "unknown"), "smaller");
   row("Hardiness zone (by ZIP)", items.map(() => null), items.map((it) => hardinessText(site(it).hardiness)));
   const hazards = items.map((it) => site(it).hazards);
-  row("Natural hazard risk (FEMA)", hazards.map((h) => (h && h.overallLevel >= 0 ? h.overallLevel : null)),
+  rowUnlessCovered("Natural hazard risk (FEMA)", hazards.map((h) => (h && h.overallLevel >= 0 ? h.overallLevel : null)),
     hazards.map((h, i) => (h === undefined ? "not looked up" : h === null ? "no data" : h.overall)), "smaller");
   row("Hazards rated high or very high", hazards.map((h) => (h ? highHazards(h).length : null)),
     hazards.map((h) => (!h ? "unknown" : highHazards(h).join(", ") || "None")), "smaller");
@@ -549,30 +593,87 @@ function buildComparison(items, s) {
   return rows;
 }
 
-// Returns { total, parts, factorsScored, factorsTotal, dealbreakers }.
-function scoreParcel(parcel, s) {
+// The criteria you ticked, in your order.
+function chosenCriteria(s) {
+  const c = normalizeCriteria(s.criteria);
+  return c.order.filter((key) => c.on[key]);
+}
+
+// Every criterion's score from 0 to 100, or null when there is no data. Worked out for all of them,
+// ticked or not, because the dealbreaker switches and the compare table use them too.
+function criterionScores(parcel, s) {
   const site = parcel.site || {};
-  const parts = {
-    septic: site.septicRating in SEPTIC_SCORES ? SEPTIC_SCORES[site.septicRating] : null,
-    slope: site.slopePct == null ? null : linearScore(site.slopePct, s.slopeIdeal, s.slopeMax),
-    rain: site.annualRainIn == null ? null : linearScore(site.annualRainIn, s.rainFull, s.rainZero),
-    airport: airportMinutes(site, s) == null ? null
-      : linearScore(airportMinutes(site, s), s.airportFullMin, s.airportMaxMin),
-    price: parcel.askingPrice == null ? null : linearScore(parcel.askingPrice, s.priceTarget, s.priceMax),
-    internet: scoreInternet(site.internet, s),
-  };
-  let weightSum = 0, weighted = 0, scored = 0;
-  for (const [name, value] of Object.entries(parts)) {
-    if (value == null) continue;               // missing data is skipped, not counted as zero
-    scored += 1;
-    weightSum += s.points[name];
-    weighted += value * s.points[name];
-  }
+  const range = (value, best, worst) => (value == null ? null : linearScore(value, best, worst));
   return {
-    total: weightSum === 0 ? null : Math.round(weighted / weightSum * 10) / 10,
+    septic: site.septicRating in SEPTIC_SCORES ? SEPTIC_SCORES[site.septicRating] : null,
+    slope: range(site.slopePct, s.slopeIdeal, s.slopeMax),
+    rain: range(site.annualRainIn, s.rainFull, s.rainZero),
+    airport: range(airportMinutes(site, s), s.airportFullMin, s.airportMaxMin),
+    price: range(parcel.askingPrice, s.priceTarget, s.priceMax),
+    internet: scoreInternet(site.internet, s),
+    flood: scoreFlood(site),
+    groundwater: range(nearestWaterDepth(site.groundwater), s.groundwaterFullFt, s.groundwaterZeroFt),
+    hazards: scoreHazards(site.hazards),
+    hospital: range(placeDriveMinutes(site, "hospital", s), s.hospitalFullMin, s.hospitalMaxMin),
+    grocery: range(placeDriveMinutes(site, "grocery", s), s.groceryFullMin, s.groceryMaxMin),
+  };
+}
+
+// Returns { total, parts, chosen, factorsScored, factorsTotal, dealbreakers }.
+// The total is the plain average of the ticked criteria that have data: each counts the same,
+// and a criterion with no data is skipped, not counted as zero.
+function scoreParcel(parcel, s) {
+  const parts = criterionScores(parcel, s);
+  const chosen = chosenCriteria(s);
+  const withData = chosen.filter((key) => parts[key] != null);
+  const sum = withData.reduce((total, key) => total + parts[key], 0);
+  return {
+    total: withData.length === 0 ? null : Math.round(sum / withData.length * 10) / 10,
     parts,
-    factorsScored: scored,
-    factorsTotal: Object.keys(parts).length,
+    chosen,
+    factorsScored: withData.length,
+    factorsTotal: chosen.length,
     dealbreakers: findDealbreakers(parcel, s, parts),
   };
+}
+
+// What a criterion found for a parcel, in words: "Somewhat limited", "3.2%", "41 min to Austin (AUS)".
+// `short` gives a compact version for the list columns.
+function criterionValueText(key, parcel, s, short = false) {
+  const site = parcel.site || {};
+  const mins = (m) => `${Math.round(m)} min`;
+  switch (key) {
+    case "septic": return site.septicRating || "no data";
+    case "slope": return site.slopePct == null ? "no data" : `${site.slopePct}%${!short && site.slopeFacing && site.slopeFacing !== "flat" ? `, faces ${site.slopeFacing}` : ""}`;
+    case "rain": return site.annualRainIn == null ? "no data" : `${site.annualRainIn} in/year`;
+    case "airport": {
+      const m = airportMinutes(site, s);
+      return m == null ? "no data" : short ? mins(m) : `${mins(m)} to ${site.nearestAirport}${site.airportDriveMin == null ? " (estimated)" : ""}`;
+    }
+    case "price": return parcel.askingPrice == null ? "no data" : money(parcel.askingPrice);
+    case "internet": {
+      const net = site.internet;
+      if (!net) return "no data";
+      if (net.bestMbps != null) return `${net.bestMbps} Mbps`;
+      return net.technologies.includes("Satellite") ? "Satellite only" : "None listed";
+    }
+    case "flood": {
+      const answer = floodAnswer(site.floodZone, site.floodSfha);
+      if (!site.floodZone) return "no data";
+      return short ? `Zone ${site.floodZone}` : answer.text;
+    }
+    case "groundwater": {
+      const depth = nearestWaterDepth(site.groundwater);
+      return depth == null ? "no data" : short ? `${depth} ft` : `${depth} ft at ${site.groundwater.wells[0].distanceMiles} mi`;
+    }
+    case "hazards": return site.hazards && site.hazards.overallLevel >= 0 ? site.hazards.overall : "no data";
+    case "hospital":
+    case "grocery": {
+      const m = placeDriveMinutes(site, key, s);
+      if (m == null) return site.places ? "none found" : "no data";
+      const place = site.places[key];
+      return short ? mins(m) : `${mins(m)} to ${place.name}${place.driveMin == null ? " (estimated)" : ""}`;
+    }
+    default: return "?";
+  }
 }
