@@ -333,10 +333,12 @@ test("inUnitedStates: accepts US places, catches typos and other countries", () 
 
 test("county: reads name and state from the Census reply, handles parishes and missing state", () => {
   const parseCounty = pure.get("parseCounty");
-  assert.deepEqual(plain(parseCounty({ result: { geographies: { Counties: [{ NAME: "Blanco County", STATE: "48", COUNTY: "031" }], States: [{ STUSAB: "TX", STATE: "48" }] } } })), { county: "Blanco", state: "TX", stateFips: "48", countyFips: "031" });
-  assert.deepEqual(plain(parseCounty({ result: { geographies: { Counties: [{ NAME: "Orleans Parish" }], States: [{ STUSAB: "LA" }] } } })), { county: "Orleans Parish", state: "LA", stateFips: null, countyFips: null });
-  assert.deepEqual(plain(parseCounty({ result: { geographies: { Counties: [{ NAME: "Blanco County" }] } } })), { county: "Blanco", state: null, stateFips: null, countyFips: null });
-  assert.deepEqual(plain(parseCounty({ result: { geographies: {} } })), { county: null, state: null, stateFips: null, countyFips: null });
+  assert.deepEqual(plain(parseCounty({ result: { geographies: { Counties: [{ NAME: "Blanco County", STATE: "48", COUNTY: "031" }], States: [{ STUSAB: "TX", STATE: "48" }] } } })), { county: "Blanco", state: "TX", stateFips: "48", countyFips: "031", tractGeoid: null });
+  // The tract comes with the same reply when the Census includes it (it does for the default layers).
+  assert.equal(parseCounty({ result: { geographies: { Counties: [{ NAME: "Blanco County" }], "Census Tracts": [{ GEOID: "48031950101" }] } } }).tractGeoid, "48031950101");
+  assert.deepEqual(plain(parseCounty({ result: { geographies: { Counties: [{ NAME: "Orleans Parish" }], States: [{ STUSAB: "LA" }] } } })), { county: "Orleans Parish", state: "LA", stateFips: null, countyFips: null, tractGeoid: null });
+  assert.deepEqual(plain(parseCounty({ result: { geographies: { Counties: [{ NAME: "Blanco County" }] } } })), { county: "Blanco", state: null, stateFips: null, countyFips: null, tractGeoid: null });
+  assert.deepEqual(plain(parseCounty({ result: { geographies: {} } })), { county: null, state: null, stateFips: null, countyFips: null, tractGeoid: null });
 });
 
 test("countyLabel: adds County, or keeps Parish and Borough, and the state", () => {

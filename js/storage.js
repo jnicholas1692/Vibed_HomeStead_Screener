@@ -67,6 +67,7 @@ function loadSettings() {
     reportOrder: normalizeReportOrder(saved.reportOrder),
     huntingCounties: undefined,                     // removed in v2.1.0; old saved lists are ignored
     censusKey: typeof saved.censusKey === "string" ? saved.censusKey : "",
+    crimeKey: typeof saved.crimeKey === "string" ? saved.crimeKey : "",
     // Your own airport list is only used if you chose "custom" and the list is not empty.
     airports: Array.isArray(saved.airports) ? saved.airports : [],
     airportMode: saved.airportMode === "custom" && Array.isArray(saved.airports) && saved.airports.length ? "custom" : "auto",

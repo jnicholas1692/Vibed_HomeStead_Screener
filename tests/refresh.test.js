@@ -103,7 +103,7 @@ function goodParcel() {
       publicLand: null, groundwater: { wells: [] }, wetlands: null, roads: { nearest: null, nearestPublicPaved: null, source: "osm" },
       climate: {}, annualRainIn: 30, internet: { bestMbps: 50, technologies: [] }, places: {}, hazards: null, hardiness: null,
       nearestAirport: "Austin (AUS)", airportMiles: 50, airportDriveMin: 60, taxRate: { ratePct: 1.5 },
-      more: { failed: [], countyProfile: null, drought: null, weather: null, wind: null, facilities: null, disasters: null },
+      more: { failed: [], people: null, crime: null, drought: null, weather: null, wind: null, facilities: null, disasters: null },
       texas: { failed: [], parcel: null, groundwaterDistrict: null, schoolDistrict: null, wells: null, pipelines: null, oilGasWells: null, edwards: null },
     },
   };
@@ -149,17 +149,20 @@ test("planLookups: parcels saved before failedSteps existed use their error mess
   assert.ok(plan.steps.includes("Internet"));
 });
 
-test("planLookups: a tax rate that waited for a Census key is asked again once a key is set", () => {
+test("planLookups: lookups that waited for a key (tax rate: Census; crime: api.data.gov) are asked again once it is set", () => {
   const { app } = appWith({});
   const p = goodParcel();
   p.site.taxRate = { needsKey: true };
-  p.site.more.countyProfile = { needsKey: true };
+  p.site.more.crime = { needsKey: true };
   const s = defaults();
   assert.equal(app.get("planLookups")(p, "missing", s).tax, false);
+  assert.equal(app.get("planLookups")(p, "missing", s).more, false);
   s.censusKey = "KEY";
   const plan = plain(app.get("planLookups")(p, "missing", s));
   assert.equal(plan.tax, true);
-  assert.deepEqual(plan.more, ["countyProfile"]);
+  assert.equal(plan.more, false);                 // the crime figures need their own key, not the Census one
+  s.crimeKey = "CRIMEKEY";
+  assert.deepEqual(plain(app.get("planLookups")(p, "missing", s)).more, ["crime"]);
 });
 
 test("lookupAll in missing mode keeps what is there and only asks the missing services", async () => {
@@ -210,7 +213,7 @@ test("a spot with no soil survey is stored as an answer (null), so it is not ask
 
 test("the piece lists match what lookupMore and lookupTexas ask", async () => {
   const { app } = appWith({ "": { status: 500, body: "x" } });
-  const more = plain(await app.get("lookupMore")({ lat: 30, lon: -98, stateFips: "48", countyFips: "031" }, "KEY"));
+  const more = plain(await app.get("lookupMore")({ lat: 30, lon: -98, stateFips: "48", countyFips: "031", state: "TX", county: "Blanco" }, "KEY"));
   assert.deepEqual(more.failed.sort(), plain(app.get("MORE_PIECES")).sort());
   const tx = plain(await app.get("lookupTexas")(30, -98));
   assert.deepEqual(tx.failed.sort(), plain(app.get("TEXAS_PIECES")).sort());

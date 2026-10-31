@@ -103,6 +103,8 @@ function parseCounty(data) {
     // The Census numbers every state and county. Together they name a county exactly, and the tax-rate lookup needs them.
     stateFips: counties.length && counties[0].STATE ? counties[0].STATE : (states.length && states[0].STATE ? states[0].STATE : null),
     countyFips: counties.length && counties[0].COUNTY ? counties[0].COUNTY : null,
+    // The census tract (a neighborhood of a few thousand people) the spot is in, for the people and community figures.
+    tractGeoid: geographies["Census Tracts"] && geographies["Census Tracts"].length ? geographies["Census Tracts"][0].GEOID : null,
   };
 }
 
@@ -1307,32 +1309,109 @@ const DROUGHT_URL = "https://services5.arcgis.com/0OTVzJS4K09zlixn/ArcGIS/rest/s
 const ECHO_URL = "https://echodata.epa.gov/echo/echo_rest_services.get_facilities";
 const ECHO_RADIUS_MILES = 2;
 
-// The Census returns blank or large negative numbers for "not available".
-const censusNumber = (v) => { const n = Number(v); return Number.isFinite(n) && n >= 0 ? n : null; };
+/* ---- people and community: the Census Bureau's survey figures for the tract and the county ---- */
 
-// ACS county profile: [header row, data row] -> { name, population, medianIncome, medianAge, medianHomeValue, broadbandPct, year }.
-function parseCountyProfile(data, year) {
-  if (!Array.isArray(data) || data.length < 2) return null;
-  const row = Object.fromEntries(data[0].map((name, i) => [name, data[1][i]]));
-  const withBroadband = censusNumber(row.B28002_004E), households = censusNumber(row.B28002_001E);
+// Census Reporter (censusreporter.org) republishes the Census Bureau's American Community Survey and, unlike the
+// Census's own API, answers a web page without a key. Its "geo IDs" are the Census GEOID with a prefix for the level.
+const CENSUS_REPORTER_URL = "https://api.censusreporter.org/1.0/data/show/latest";
+const PEOPLE_TABLES = ["B01003", "B01002", "B09001", "B19013", "B17001", "B15003", "B08301", "B28002", "B25077"];
+
+// One place's tables -> plain numbers. Each table's values are named like "B17001002" (table, then line number).
+function summarizePlace(tables) {
+  if (!tables) return null;
+  const est = (table, line) => {
+    const v = tables[table] && tables[table].estimate ? tables[table].estimate[`${table}${line}`] : null;
+    return Number.isFinite(v) && v >= 0 ? v : null;   // missing, or a negative "not available" code
+  };
+  const pct = (part, whole) => (part != null && whole > 0 ? Math.round(part / whole * 1000) / 10 : null);
+  const population = est("B01003", "001");
+  const bachelorsOrMore = ["022", "023", "024", "025"].map((line) => est("B15003", line));   // bachelor's, master's, professional, doctorate
   return {
-    name: row.NAME || null, year,
-    population: censusNumber(row.B01003_001E), medianIncome: censusNumber(row.B19013_001E),
-    medianAge: censusNumber(row.B01002_001E), medianHomeValue: censusNumber(row.B25077_001E),
-    broadbandPct: withBroadband != null && households ? Math.round(withBroadband / households * 100) : null,
+    population,
+    medianAge: est("B01002", "001"),
+    under18Pct: pct(est("B09001", "001"), population),
+    medianIncome: est("B19013", "001"),
+    povertyPct: pct(est("B17001", "002"), est("B17001", "001")),
+    bachelorsPct: bachelorsOrMore.every((v) => v != null) ? pct(bachelorsOrMore.reduce((a, b) => a + b, 0), est("B15003", "001")) : null,
+    workFromHomePct: pct(est("B08301", "021"), est("B08301", "001")),
+    broadbandPct: pct(est("B28002", "004"), est("B28002", "001")),
+    medianHomeValue: est("B25077", "001"),
   };
 }
 
-async function lookupCountyProfile(stateFips, countyFips, key) {
+// The reply -> { release, tract: {...} | null, county: {...} | null }.
+function summarizePeople(data, tractId, countyId) {
+  if (!data || !data.data) return null;
+  const release = data.release ? `${data.release.name}${data.release.years ? ` (${data.release.years})` : ""}` : null;
+  return { release, tract: summarizePlace(data.data[tractId]), county: summarizePlace(data.data[countyId]) };
+}
+
+async function lookupPeople(tractGeoid, stateFips, countyFips) {
   if (!stateFips || !countyFips) return null;
-  const params = new URLSearchParams({ get: "NAME,B01003_001E,B19013_001E,B01002_001E,B25077_001E,B28002_001E,B28002_004E", for: `county:${countyFips}`, in: `state:${stateFips}` });
-  if (key) params.set("key", key);
+  const countyId = `05000US${stateFips}${countyFips}`;
+  const tractId = tractGeoid ? `14000US${tractGeoid}` : null;
+  const geoIds = [tractId, countyId].filter(Boolean).join(",");
+  const data = await getJSON(`${CENSUS_REPORTER_URL}?table_ids=${PEOPLE_TABLES.join(",")}&geo_ids=${geoIds}`, {}, 30000);
+  if (data.error) throw new Error("Census Reporter error");
+  return summarizePeople(data, tractId, countyId);
+}
+
+/* ---- crime: the FBI's Crime Data Explorer, for the county sheriff ---- */
+
+// The FBI's API needs a free key from api.data.gov, which you paste in Settings; it is sent only to api.usa.gov.
+// The sheriff's office covers the countryside outside city limits, which is where most rural land is.
+const FBI_CDE_URL = "https://api.usa.gov/crime/fbi/cde/";
+const fbiAgencyLists = {};   // state -> the list of its agencies, kept for this visit (Texas's list is about 400 KB)
+
+// The state's agency list (grouped by county name in capitals) -> the county sheriff, or null.
+function findSheriff(agenciesByCounty, county) {
+  const name = String(county || "").toUpperCase().replace(/ COUNTY$/, "");
+  const agencies = (agenciesByCounty && agenciesByCounty[name]) || [];
+  return agencies.find((a) => a.agency_type_name === "County") || null;
+}
+
+// One offense reply ("V" violent or "P" property, monthly) -> { count, months, ratePer100k, texasRate, usRate } for the year.
+// Monthly rates per 100,000 people add up to a yearly rate. The state's name is in the reply, so it is found by elimination.
+function summarizeOffenses(data, agencyName, stateName) {
+  const offenses = data && data.offenses;
+  if (!offenses || !offenses.actuals) return null;
+  const sum = (series) => Object.values(series || {}).reduce((total, v) => total + (Number(v) || 0), 0);
+  const actual = offenses.actuals[`${agencyName} Offenses`];
+  if (!actual) return null;
+  const months = Object.keys(actual).length;
+  const pop = Object.values((data.populations && data.populations.population && data.populations.population[agencyName]) || {}).map(Number).filter((v) => v > 0);
+  const population = pop.length ? Math.max(...pop) : null;
+  const count = sum(actual);
+  const round = (v) => Math.round(v * 10) / 10;
+  const rates = offenses.rates || {};
+  return {
+    count, months, population,
+    ratePer100k: population ? round(count / population * 100000) : null,
+    stateRate: rates[`${stateName} Offenses`] ? round(sum(rates[`${stateName} Offenses`])) : null,
+    usRate: rates["United States Offenses"] ? round(sum(rates["United States Offenses"])) : null,
+  };
+}
+
+async function lookupCrime(stateAbbr, county, key) {
+  if (!key) return { needsKey: true };
+  if (!stateAbbr || !county) return null;
   try {
-    return parseCountyProfile(await getJSON(`https://api.census.gov/data/${ACS_YEAR}/acs/acs5?${params}`, {}, 30000), ACS_YEAR);
+    if (!fbiAgencyLists[stateAbbr]) fbiAgencyLists[stateAbbr] = await getJSON(`${FBI_CDE_URL}agency/byStateAbbr/${stateAbbr}?API_KEY=${encodeURIComponent(key)}`, {}, 40000);
   } catch (error) {
-    if (error.notJson || /^HTTP 4/.test(error.message) || (!key && error.name === "TypeError")) return { needsKey: true, keyRejected: Boolean(key) };
+    if (/^HTTP (401|403)$/.test(error.message)) return { needsKey: true, keyRejected: true };
     throw error;
   }
+  const sheriff = findSheriff(fbiAgencyLists[stateAbbr], county);
+  if (!sheriff) return { agency: null };
+  const year = new Date().getFullYear() - 1;   // the last full calendar year
+  const ask = (code) => getJSON(`${FBI_CDE_URL}summarized/agency/${sheriff.ori}/${code}?from=01-${year}&to=12-${year}&API_KEY=${encodeURIComponent(key)}`, {}, 40000);
+  const [violent, property] = await Promise.all([ask("V"), ask("P")]);
+  const stateName = sheriff.state_name || "";
+  return {
+    agency: sheriff.agency_name, ori: sheriff.ori, year,
+    violent: summarizeOffenses(violent, sheriff.agency_name, stateName),
+    property: summarizeOffenses(property, sheriff.agency_name, stateName),
+  };
 }
 
 // US Drought Monitor: the drought category (D0 to D4) of the current weekly map at the spot, if any. Where there is no drought
@@ -1438,15 +1517,16 @@ async function lookupDisasters(stateFips, countyFips) {
 }
 
 // The pieces of "More local conditions", in the order they are looked up (the keys of `jobs` below).
-const MORE_PIECES = ["countyProfile", "drought", "weather", "wind", "facilities", "disasters"];
+const MORE_PIECES = ["people", "crime", "drought", "weather", "wind", "facilities", "disasters"];
 
 // Each piece is looked up on its own, like the Texas details: `failed` lists the pieces that did not answer.
 // `only` (a list of piece names) asks just those pieces; leave it out to ask them all.
-async function lookupMore(parcel, censusKey, only = null) {
-  const { lat, lon, stateFips, countyFips } = parcel;
+async function lookupMore(parcel, crimeKey, only = null) {
+  const { lat, lon, stateFips, countyFips, tractGeoid, state, county } = parcel;
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("Bad coordinates");
   const jobs = {
-    countyProfile: () => lookupCountyProfile(stateFips, countyFips, censusKey),
+    people: () => lookupPeople(tractGeoid, stateFips, countyFips),
+    crime: () => lookupCrime(state, county, crimeKey),
     drought: () => lookupDrought(lat, lon),
     weather: () => lookupNws(lat, lon),
     wind: () => lookupPower(lat, lon),
@@ -1706,7 +1786,7 @@ function planLookups(parcel, mode, s) {
   const routes = everything || failed.includes("Routes") || steps.includes("Nearby") || routesMissing(site);
   const tax = everything || countyAgain || failed.includes("Tax rate") || site.taxRate === undefined
     || Boolean(site.taxRate && site.taxRate.needsKey && s.censusKey);   // it was waiting for a key, and now there is one
-  const keyNowSet = (name, group) => name === "countyProfile" && Boolean(group.countyProfile && group.countyProfile.needsKey && s.censusKey);
+  const keyNowSet = (name, group) => name === "crime" && Boolean(group.crime && group.crime.needsKey && s.crimeKey);
   let more = everything || countyAgain ? null : missingPieces(site.more, MORE_PIECES, keyNowSet);
   if (Array.isArray(more) && more.length === 0) more = false;
   // Texas is only looked up for Texas parcels; a parcel whose state just turned up may need it for the first time.
@@ -1774,7 +1854,7 @@ async function lookupAll(parcel, onProgress, mode = "all", plan = planLookups(pa
   if (plan.more !== false) {
     onProgress("More conditions", "running");
     try {
-      const fresh = await lookupMore(parcel, settings.censusKey, plan.more);
+      const fresh = await lookupMore(parcel, settings.crimeKey, plan.more);
       parcel.site.more = mergePieces(parcel.site.more, fresh);
       // Keep what came back (the report says which pieces could not load), but count a total failure as a failed lookup.
       const allFailed = fresh.failed.length > 0 && fresh.failed.length === Object.keys(fresh).length - 1;
