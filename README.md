@@ -97,11 +97,21 @@ then visit http://localhost:8000.
 
 ## Test it
 
-Requires Node 20 or newer.
+Unit tests need Node 20 or newer:
 
 ```
 npm test
 ```
+
+Browser tests need Python 3.9 or newer and Playwright. They open the site in Chromium with every outside data service replaced by a fake answer, so they never touch the real services (the map library still loads from unpkg). They serve the site on port 8765, so that port must be free.
+
+```
+python -m pip install playwright
+python -m playwright install chromium
+python test_site.py
+```
+
+Add `--headed` to watch the browser. Passing tests cannot prove a real service still answers, so spot-check the live site after a release.
 
 ## Version history
 
@@ -110,6 +120,7 @@ npm test
 - **v2.0.2** The main page links to the GitHub repository
 - **v2.1.0** Hover explanations on every data point and Settings option; hunting removed; a Texas details section (parcel record, groundwater district, school district, wells, pipelines, oil and gas, Edwards zone) shown only for Texas parcels; a More local conditions section (county profile, drought, weather alerts, wind, facilities); report grouped into collapsible categories. 133 unit tests.
 - **v2.2.0** A Get a free Census API key link right under the key box in Settings; the page footer shows the version and the date of the last update. 136 unit tests.
+- **v2.2.1** A browser test suite (`test_site.py`, 105 checks with every data service faked) is now part of the repository; the rough cost labels have hover explanations; the Reset to defaults tip now says it saves at once and keeps your Census key. 136 unit tests.
 - **v1.9.1** Drag the report sections into order in Settings (Up and Down still work)
 - **v1.9.0** Down payment in dollars; asking price next to the name in the list; 30-year conventional and FHA payments beside your land loan; a USDA loan area Yes or No from USDA's eligibility map
 - **v1.8.0** Edit a parcel's name, address, location, acres and price after adding it; choose the order of the report sections in Settings (the Criteria button is now Settings)

@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v2.2.0.
+> Last updated for v2.2.1.
 
 ## 1. Problem
 
@@ -87,6 +87,8 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R50 | Collapsible categories | The report is grouped into six collapsible categories (Overview; Land, soil and water; Access and services; Climate, hazards and area; Texas; Cost and loans) with Expand all / Collapse all; open state is remembered and all open when printing | `feature/tooltips-texas-no-hunting` |
 | R51 | Census key sign-up link | Settings > Costs and loans shows a "Get a free Census API key" link right under the key box that opens api.census.gov/data/key_signup.html in a new tab, with a hover explanation; the tax-rate hint in the report names Settings > Costs and loans | `feature/census-link-and-version-footer` |
 | R52 | Version in the footer | The page footer shows "Version X.Y.Z, last updated Month D, YYYY" from `APP_VERSION` and `APP_UPDATED` in config.js, with a hover explanation; the date never shifts a day by time zone; a test fails if the version differs from package.json or is missing from the README version history or this SPEC | `feature/census-link-and-version-footer` |
+| R53 | Browser test suite | `test_site.py` opens the site in Chromium with every outside service faked (core lookups and Texas answer, the rest fail on purpose) and checks page load, footer, hover help, Settings and reload, add-window errors, address suggestions, the full report, owner details never on the page, in storage or in an export, the Census key sent only to the Census, no request to an unknown host, categories and printing, demo, sort, filter, compare, delete, clear data, an all-services-down run and phone width; it exits with an error if any check fails | `feature/browser-test-suite` |
+| R54 | Cost labels explained | Every label in the rough cost table has a hover explanation; the Reset to defaults tip matches what it does (saves at once, closes Settings, keeps the Census key) | `feature/browser-test-suite` |
 
 ## 5. Scoring rules
 
@@ -155,7 +157,7 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 ## 10. Testing
 
 - 136 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
-- A browser test script with mocked services was used during development and is not part of the repository.
+- 105 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
 - Live checks against real services are manual (see the tutorial).
 
 ## 11. What I would do next

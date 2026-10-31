@@ -2,7 +2,7 @@
 
 // The version shown in the page footer and the day it was released. Change both with every release,
 // along with "version" in package.json and the README version history (tests/version.test.js checks they agree).
-const APP_VERSION = "2.2.0";
+const APP_VERSION = "2.2.1";
 const APP_UPDATED = "2026-10-31";   // year-month-day
 
 // Where to sign up for the free Census API key used for the county tax rate and county profile.
@@ -375,6 +375,15 @@ const GLOSSARY = {
   "Oil and gas wells within 1 mile": { source: "txRrc", text: "Wells in the Railroad Commission of Texas records, including oil, gas and injection or disposal wells, within one mile. They can bring noise, traffic, flaring, odors and spill risk. Also check who owns the minerals under the land, which this app cannot see." },
   "Pipelines within half a mile": { source: "txRrc", text: "Pipeline segments in Railroad Commission records within half a mile, with the operators and what they carry. A pipeline easement can limit where you can build or dig." },
   "Edwards Aquifer recharge zone": { source: "txEdwards", text: "The area where rain soaks quickly into the Edwards Aquifer, a major water supply for the San Antonio and Austin region. Building, septic systems and other work there fall under extra state water-protection rules (30 TAC Chapter 213) and need approval from the Texas Commission on Environmental Quality (TCEQ). Land just outside it may still drain toward it." },
+  // ---- rough cost (every number comes from the placeholder rates in Settings > Costs and loans) ----
+  "Loan payment": { text: "Monthly principal and interest on a loan for the land itself, using your down payment, rate and years from Settings. 0 years means the land is treated as paid in cash." },
+  "Property tax": { text: "Yearly property tax divided by 12. It uses the county's typical rate from the Census when known and turned on, otherwise your own percent from Settings. Vacant land and farm exemptions can make a real bill very different." },
+  "Insurance": { text: "Your placeholder monthly cost to insure the land, from Settings. Replace it with a real quote." },
+  "About per month": { text: "Loan payment, property tax and insurance added together. It leaves out the house, utilities and loan fees." },
+  "Cash down payment": { text: "The cash you put down at purchase, from Settings. It never counts for more than the price." },
+  "Septic system": { text: "Placeholder cost of a septic system from Settings: the engineered price when the soil is very limited for septic, otherwise the conventional price." },
+  "Water well": { text: "Placeholder cost of drilling a water well, from Settings. Depth and rock make this swing widely, so get a local driller's quote." },
+  "One-time start-up": { text: "Cash down payment, septic system and water well added together. It leaves out the house, the driveway, electricity and closing costs." },
   // ---- the factor table (the scored factors are explained in FACTOR_TIPS below, with your settings filled in) ----
   "Factor": { text: "One thing the app scores. Each factor gets a score from 0 to 100, and the total is an average weighted by your points." },
   "Points": { text: "Your share of the 10 points in Settings. A factor with more points pulls the total score harder. 0 points means the factor is not scored." },
@@ -440,7 +449,7 @@ const UI_TIPS = {
   "f-acres": "Size of the parcel in acres. The app cannot see parcel lines, so this is only what you enter.",
   "f-price": "Asking price in US dollars. It feeds the Price score and the cost estimates.",
   "btn-pick": "Close this window and click the map to set the location.",
-  "btn-reset-criteria": "Put every setting back to its starting value. Nothing changes until you also press Save settings.",
+  "btn-reset-criteria": "Put every setting back to its starting value right away and close Settings. Your Census API key is kept.",
   "tab-scoring": "Spend your 10 points and set dealbreakers and the ranges that decide each score.",
   "tab-costs": "Placeholder numbers for the rough cost estimate and the home loan comparison.",
   "tab-layout": "Choose the order of the sections in each parcel's report.",

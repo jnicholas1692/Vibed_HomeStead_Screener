@@ -523,14 +523,14 @@ function costHtml(parcel) {
   if (fha.raisedToMinimum) homeNotes.push(`Your down payment is under the ${LOAN_RULES.fhaMinDownPct}% an FHA loan needs, so ${money(fha.minimumDown)} is used.`);
   if (fha.overLimit) homeNotes.push(`The FHA loan is above the ${money(LOAN_RULES.fhaLoanLimitFloor)} national limit floor. Limits are higher in costly counties, so check the county limit.`);
   return `<div class="kv">
-      <div>Loan payment</div><div>${loanText}${c.years > 0 ? ` <span class="sub">(${money(est.downPayment)} down, ${c.ratePct}% for ${c.years} years)</span>` : ""}</div>
-      <div>Property tax</div><div>${money(est.monthly.tax)} <span class="sub">(${est.taxPct}% a year, ${est.taxSource === "county" ? `typical for ${esc(parcel.site.taxRate.name)}` : "your setting"})</span></div>
-      <div>Insurance</div><div>${money(est.monthly.insurance)}</div>
-      <div><strong>About per month</strong></div><div><strong>${money(est.monthly.total)}</strong></div>
-      <div>Cash down payment</div><div>${money(est.downPayment)}</div>
-      <div>Septic system</div><div>${money(est.oneTime.septic)}</div>
-      <div>Water well</div><div>${money(est.oneTime.well)}</div>
-      <div><strong>One-time start-up</strong></div><div><strong>${money(est.oneTime.total)}</strong></div>
+      <div>${helpLabel("Loan payment")}</div><div>${loanText}${c.years > 0 ? ` <span class="sub">(${money(est.downPayment)} down, ${c.ratePct}% for ${c.years} years)</span>` : ""}</div>
+      <div>${helpLabel("Property tax")}</div><div>${money(est.monthly.tax)} <span class="sub">(${est.taxPct}% a year, ${est.taxSource === "county" ? `typical for ${esc(parcel.site.taxRate.name)}` : "your setting"})</span></div>
+      <div>${helpLabel("Insurance")}</div><div>${money(est.monthly.insurance)}</div>
+      <div><strong>${helpLabel("About per month")}</strong></div><div><strong>${money(est.monthly.total)}</strong></div>
+      <div>${helpLabel("Cash down payment")}</div><div>${money(est.downPayment)}</div>
+      <div>${helpLabel("Septic system")}</div><div>${money(est.oneTime.septic)}</div>
+      <div>${helpLabel("Water well")}</div><div>${money(est.oneTime.well)}</div>
+      <div><strong>${helpLabel("One-time start-up")}</strong></div><div><strong>${money(est.oneTime.total)}</strong></div>
     </div>
     <p class="hint">${esc(est.notes.join(" "))} These numbers come from the placeholder rates and prices in Settings, not from a quote. Property tax, insurance and building costs vary widely by state and county, and this leaves out the house, the driveway, electricity, and loan fees. Ask a lender, the county tax office and local contractors.</p>${taxKeyHint(parcel)}
     <h4>Monthly payment by loan type</h4>
