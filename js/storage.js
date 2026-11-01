@@ -62,6 +62,7 @@ function loadSettings() {
     ...DEFAULT_SETTINGS, ...saved, weights: undefined, points: undefined,
     criteria: loadCriteria(saved),
     uses: { ...DEFAULT_SETTINGS.uses, ...onlyBooleans(saved.uses) },
+    family: { ...DEFAULT_SETTINGS.family, ...onlyBooleans(saved.family) },
     dealbreakers: { ...DEFAULT_SETTINGS.dealbreakers, ...onlyBooleans(saved.dealbreakers) },
     costs: migrateCosts({ ...DEFAULT_SETTINGS.costs, ...(saved.costs || {}) }, saved),
     reportOrder: normalizeReportOrder(saved.reportOrder),

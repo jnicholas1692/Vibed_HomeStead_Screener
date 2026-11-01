@@ -93,6 +93,9 @@ test("after a reload, a map server still resting is skipped and the one that wor
 
 /* ---- what Refresh data asks again ---- */
 
+// Every everyday kind of nearby place, each answered with "none found" (null).
+const everydayPlaces = () => Object.fromEntries(plain(loadScripts(["config.js", "sources.js"]).get("PLACE_KINDS")).filter((k) => !k.family).map((k) => [k.key, null]));
+
 // A parcel whose lookups all worked, except the ones a test breaks on purpose.
 function goodParcel() {
   return {
@@ -101,7 +104,7 @@ function goodParcel() {
     site: {
       floodZone: null, elevationFt: 1200, slopePct: 3, septicRating: "Not limited", soilDetails: {}, usda: { eligibleArea: true },
       publicLand: null, groundwater: { wells: [] }, wetlands: null, roads: { nearest: null, nearestPublicPaved: null, source: "osm" },
-      climate: {}, annualRainIn: 30, internet: { bestMbps: 50, technologies: [] }, places: {}, hazards: null, hardiness: null,
+      climate: {}, annualRainIn: 30, internet: { bestMbps: 50, technologies: [] }, places: everydayPlaces(), hazards: null, hardiness: null,
       nearestAirport: "Austin (AUS)", airportMiles: 50, airportDriveMin: 60, taxRate: { ratePct: 1.5 },
       more: { failed: [], people: null, crime: null, drought: null, weather: null, wind: null, facilities: null, disasters: null },
       texas: { failed: [], parcel: null, groundwaterDistrict: null, schoolDistrict: null, wells: null, pipelines: null, oilGasWells: null, edwards: null },
@@ -118,8 +121,15 @@ test("planLookups: nothing missing means nothing to ask (the airport is worked o
   const all = plain(app.get("planLookups")(goodParcel(), "all", defaults()));
   assert.equal(all.steps.length, app.get("SOURCE_STEPS").length);
   assert.equal(all.more, null);
-  assert.equal(all.texas, null);
+  assert.deepEqual(all.texas, plain(app.get("TEXAS_PIECES")));   // the delivery hospitals only when "Expecting" is ticked
   assert.equal(all.total, all.steps.length + 4);
+  const s = defaults();
+  s.family.expecting = true;
+  assert.deepEqual(plain(app.get("planLookups")(goodParcel(), "all", s)).texas.slice(-2), ["maternal", "neonatal"]);
+  // Ticking "Expecting" later makes only those two Texas pieces (and the new kinds of places) missing.
+  const later = plain(app.get("planLookups")(goodParcel(), "missing", s));
+  assert.deepEqual(later.texas, ["maternal", "neonatal"]);
+  assert.deepEqual(later.steps.sort(), ["Airport", "Nearby"]);
 });
 
 test("planLookups: failed steps, never-looked-up values and failed pieces are asked again; answered nulls are not", () => {
@@ -130,7 +140,7 @@ test("planLookups: failed steps, never-looked-up values and failed pieces are as
   p.site.more.failed = ["drought"];
   delete p.site.more.disasters;                    // a piece added later
   p.site.texas.failed = ["pipelines"];
-  p.site.places = { grocery: { name: "Market", miles: 5 } };   // no routed time yet
+  p.site.places = { ...everydayPlaces(), grocery: { name: "Market", miles: 5 } };   // no routed time yet
   const plan = plain(app.get("planLookups")(p, "missing", defaults()));
   assert.deepEqual(plan.steps.sort(), ["Airport", "Hardiness", "Roads"]);
   assert.deepEqual(plan.more, ["drought", "disasters"]);
