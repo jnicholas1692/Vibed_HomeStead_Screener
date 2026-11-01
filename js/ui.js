@@ -346,6 +346,21 @@ document.addEventListener("click", (event) => {
   writeStored(GROUPS_KEY, [...closedGroups]);   // saved here as well, so it does not depend on when the browser reports the change
 });
 
+// A jump button scrolls the report to its section, just under the buttons that stay pinned at the top,
+// opening the section's category first if it was closed.
+document.addEventListener("click", (event) => {
+  const button = event.target.closest && event.target.closest("[data-jump]");
+  if (!button) return;
+  const target = document.getElementById(button.dataset.jump);
+  const dialog = $("dlg-detail");
+  if (!target || !dialog.open) return;
+  const group = target.closest("details.rgroup");
+  if (group && !group.open) group.open = true;   // the "toggle" listener above remembers it is open now
+  const bar = dialog.querySelector(".dlg-bar");
+  const barBottom = bar ? bar.getBoundingClientRect().bottom : dialog.getBoundingClientRect().top;
+  dialog.scrollTop += target.getBoundingClientRect().top - barBottom - 8;   // 8 pixels of space under the bar
+});
+
 // A collapsed category would print as just a heading, so open them all for the printout and put them back afterwards.
 window.addEventListener("beforeprint", () => {
   printing = true;
@@ -554,7 +569,10 @@ function familyHtml(p) {
 // "Crime": what the county sheriff reported to the FBI for the last full year, with Texas and US rates.
 function crimeHtml(more) {
   if (more === undefined || !("crime" in more || (more.failed || []).includes("crime"))) return `<p class="hint">${notYetText()}</p>`;
-  if ((more.failed || []).includes("crime")) return `<p class="hint">Could not load; use Refresh data to try again.</p>`;
+  if ((more.failed || []).includes("crime")) {
+    const why = crimeFailureText((more.reasons || {}).crime);
+    return `<p class="hint">Could not load${why ? `: ${esc(why)}` : ""}. Use Refresh data to try again.</p>`;
+  }
   const crime = more.crime;
   if (crime && crime.needsKey) {
     return `<p class="hint">${crime.keyRejected ? "The FBI's service did not accept your crime data key." : "The FBI's crime figures need a free key."} Get one at <a href="${CRIME_KEY_SIGNUP_URL}" target="_blank" rel="noopener">api.data.gov/signup</a>, paste it into Settings &gt; Costs and loans, then click Refresh data.</p>`;
@@ -865,13 +883,19 @@ function openDetail(id) {
       ${sourceHtml("costs", site)}${p.site && p.site.taxRate && p.site.taxRate.ratePct != null ? sourceHtml("taxRate", site) : ""}`,
   };
   // The sections sit inside collapsible categories. A category with nothing to show (such as Texas for a parcel elsewhere) is left out.
+  // Each section is wrapped in a box with an id (like "jump-crime") so the jump buttons at the top can scroll to it.
+  const shown = [];   // [key, label] of each section shown, in report order, for the jump buttons
   const orderedSections = groupSections(normalizeReportOrder(settings.reportOrder)).map((group) => {
-    const bodies = group.sections.map((key) => sections[key]).filter(Boolean);
-    if (!bodies.length) return "";
+    const keys = group.sections.filter((key) => sections[key]);
+    if (!keys.length) return "";
+    for (const key of keys) shown.push([key, REPORT_SECTIONS.find(([k]) => k === key)[1]]);
     return `<details class="rgroup" data-group="${esc(group.key)}"${closedGroups.has(group.key) ? "" : " open"}>
       <summary>${tipSpan(group.label, GROUP_TIPS[group.key] || group.label)}</summary>
-      <div class="rgroup-body">${bodies.join("")}</div></details>`;
+      <div class="rgroup-body">${keys.map((key) => `<div class="rsection" id="jump-${key}">${sections[key]}</div>`).join("")}</div></details>`;
   }).join("");
+  shown.push(["sources", "Data sources"], ["notes", "Your notes"]);
+  const jumpButtons = shown.map(([key, label]) =>
+    `<button class="btn small" type="button" data-jump="jump-${key}" ${tipAttr(`Go to ${label} in this report. A closed category opens.`)}>${esc(label)}</button>`).join("");
   $("detail").innerHTML = `
     <div class="dlg-bar no-print">
       <div class="bar-group">
@@ -886,6 +910,7 @@ function openDetail(id) {
         ${deleteButton(p.id)}
         <button class="btn small" type="button" data-close>Close</button>
       </div>
+      <nav class="jump-bar" aria-label="Jump to a report section">${jumpButtons}</nav>
     </div>
     <div class="dlg-head">
       <div><h2 id="detail-title">${esc(p.name)}</h2>
@@ -901,9 +926,9 @@ function openDetail(id) {
       ${!busy && p.errors && p.errors.length ? `<p class="notice">Some lookups failed, so the score is partial: ${esc(p.errors.join("; "))}. Use Refresh data to try again.</p>` : ""}
       <div class="group-tools no-print"><button class="btn small" type="button" data-groups="open" ${tipAttr("Open every category in this report.")}>Expand all</button><button class="btn small" type="button" data-groups="close" ${tipAttr("Close every category so only the headings show.")}>Collapse all</button></div>
       ${orderedSections}
-      <h3>Data sources</h3>
+      <h3 id="jump-sources">Data sources</h3>
       ${sourcesFooterHtml(sourceKeysUsed(p), site, p.fetchedAt)}
-      <h3>Your notes</h3>
+      <h3 id="jump-notes">Your notes</h3>
       <div class="print-only"><p>Status: ${esc(p.status)}</p><p class="notes-print">${esc(p.notes || "(none)")}</p></div>
       <div class="fields no-print">
         <label>Status

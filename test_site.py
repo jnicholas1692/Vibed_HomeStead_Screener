@@ -875,6 +875,21 @@ def test_full_report(b):
     check("printing opens every category", page.evaluate("() => [...document.querySelectorAll('details.rgroup')].every((d) => d.open)"))
     page.evaluate("() => window.dispatchEvent(new Event('afterprint'))")
     check("after printing the categories close again", page.evaluate("() => [...document.querySelectorAll('details.rgroup')].every((d) => !d.open)"))
+
+    # Jump buttons: one per section shown (plus sources and notes), in report order; a jump opens a closed category.
+    jumps = page.eval_on_selector_all("#detail .jump-bar [data-jump]", "els => els.map((e) => e.dataset.jump)")
+    sections_shown = page.eval_on_selector_all("#detail .rsection", "els => els.map((e) => e.id)")
+    check("there is a jump button for every section shown", jumps == sections_shown + ["jump-sources", "jump-notes"], str(jumps))
+    check("every jump button has a tip", page.evaluate("() => [...document.querySelectorAll('#detail [data-jump]')].every((b) => b.dataset.tip)"))
+    page.click('#detail [data-jump="jump-texas"]')
+    page.wait_for_timeout(200)
+    check("a jump opens the section's closed category", page.evaluate("() => document.querySelector('details[data-group=texas]').open"))
+    gap = page.evaluate("""() => document.getElementById('jump-texas').getBoundingClientRect().top
+        - document.querySelector('#dlg-detail .dlg-bar').getBoundingClientRect().bottom""")
+    check("a jump puts the section just under the pinned buttons", 0 <= gap <= 20, str(gap))
+    page.emulate_media(media="print")
+    check("the jump buttons are not printed", not page.is_visible("#detail .jump-bar"))
+    page.emulate_media(media="screen")
     page.click("[data-groups=open]")
     check("Expand all opens every category", page.evaluate("() => [...document.querySelectorAll('details.rgroup')].every((d) => d.open)"))
 

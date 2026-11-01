@@ -1,6 +1,6 @@
 # Homestead Land Screener — project brief for Claude Code
 
-Owner: Jason Nicholas. Current version: **v2.10.0**. Read this first, then `README.md` (features, data sources, version history) and `SPEC.md` (numbered requirements R1–R81, scoring rules, architecture).
+Owner: Jason Nicholas. Current version: **v2.11.0**. Read this first, then `README.md` (features, data sources, version history) and `SPEC.md` (numbered requirements R1–R83, scoring rules, architecture).
 
 ## What it is
 A browser-only static site that scores rural land parcels from free public data. The first buyer (the owner) is looking for about 10 acres in central Texas within 2 hours of the San Antonio or Austin airports, but it works anywhere in the US. No backend, no accounts, no API keys, no build step. Data is saved in the browser (localStorage).
@@ -20,7 +20,7 @@ Plain HTML, CSS and vanilla JavaScript; Leaflet (loaded from unpkg) for the map.
 - `js/ui.js` — rendering, dialogs, tooltips, report, compare table
 - `css/styles.css`
 - `tests/` — Node unit tests (`node --test`), with `tests/load.js` loading the browser scripts in a `vm` and providing `fakeFetch`
-- `test_site.py` — Playwright browser suite (269 checks) with every outside service faked. Committed since v2.2.1 (the older ~297-check version was never committed and is lost). Run it before releases. It starts its own server on port 8765, so make sure no stale server is holding that port.
+- `test_site.py` — Playwright browser suite (274 checks) with every outside service faked. Committed since v2.2.1 (the older ~297-check version was never committed and is lost). Run it before releases. It starts its own server on port 8765, so make sure no stale server is holding that port.
 
 ## Scoring (v2.3+)
 Criteria you tick (`settings.criteria = { order, on }`, keys of `FACTOR_LABELS`): septic, airport, price, internet, slope, rain (ticked by default), plus flood risk, groundwater depth, natural hazard rating, hospital drive, grocery drive (unticked by default). The total is the plain average of ticked criteria with data; missing data is skipped, never zero. Your order drives the report summary table, the first 3 list columns (`LIST_CRITERIA_COLUMNS`) and the top of the compare table. Each criterion has a dealbreaker switch that works even when unticked. Septic: not limited 100, somewhat 60, very limited 15. The old 10-point skill tree (and older weights) is converted once in `storage.js` via `criteriaFromPoints`. Each scoring range is a two-ended slider (`RANGE_PAIRS` in config.js, linked to the number boxes by `syncRangePair` in ui.js). `settings.uses` holds the ticked land uses; `LAND_USES` holds their recommended ranges and criteria (rules of thumb), combined by `recommendedRanges` (stricter wins). Hunting was removed in v2.1.0.
@@ -52,8 +52,8 @@ TxGIO parcels (identify request; fields: PROP_ID, LEGAL_AREA, GIS_AREA, LAND/IMP
 4. Release flow on the owner's PC: `npm test`, `git add -A`, `git commit`, `git pull --rebase`, `git push`; Pages updates a minute or two after the push.
 
 ## Testing before any release
-- `npm test` → 198 unit tests, must all pass (also runs in GitHub Actions).
-- `python test_site.py` (needs Playwright and Chromium, installed on the owner's PC) → 269/269 on v2.10.0.
+- `npm test` → 200 unit tests, must all pass (also runs in GitHub Actions).
+- `python test_site.py` (needs Playwright and Chromium, installed on the owner's PC) → 274/274 on v2.11.0.
 - After shipping, spot-check the live site in a real browser; mocked tests cannot prove a real service still answers.
 
 ## Known gaps and ideas
@@ -63,7 +63,7 @@ TxGIO parcels (identify request; fields: PROP_ID, LEGAL_AREA, GIS_AREA, LAND/IMP
 - Tutorial document (Claude Docs project `385d0a6c-076f-42cc-9074-dbfb01b1895a`) stops at v1.5.0.
 - Ideas from SPEC: small caching proxy, county parcel boundaries, newer FCC broadband data, import listings from a saved search.
 - Family needs (v2.9.0): `settings.family` holds the ticked ages; `FAMILY_STAGES` in config.js lists each age's places, criteria and advice; `neededPlaceKinds` and `texasPiecesNeeded` in sources.js ask only for what ticked ages need. Texas delivery and NICU hospitals come from the DSHS EMS/Trauma map (item `76b63bd52aa14ebd8f1d27d84dcf1efd`; layers named like "Maternal Designated Hospitals _ May 2026" are replaced every few months, so `dshsLayerUrls` finds them from the map). Name patterns in Overpass queries time out (a doctor-name pattern took 24 s or timed out on 2026-11-01); match by tags only. Pediatric dentists carry `healthcare:speciality=paediatric_dentistry`, so `isPediatrician` leaves out dentists (v2.10.0).
-- Added in v2.7.0 (checked live): Census Reporter `data/show/latest` (its `geo/search` is blocked in browsers; the tract GEOID comes from the Census geocoder's existing reply) and the FBI CDE `agency/byStateAbbr` and `summarized/agency/<ORI>/V|P` (key required; `DEMO_KEY` works for testing only, about 30 requests an hour; the 2025 request failed with 503 on 2026-10-31, so the code falls back a year).
+- Added in v2.7.0 (checked live): Census Reporter `data/show/latest` (its `geo/search` is blocked in browsers; the tract GEOID comes from the Census geocoder's existing reply) and the FBI CDE `agency/byStateAbbr` and `summarized/agency/<ORI>/V|P` (key required; `DEMO_KEY` works for testing only, about 30 requests an hour; the 2025 request failed with 503 on 2026-10-31, so the code falls back a year). Checked again from the live site on 2026-11-01 with DEMO_KEY: 2025 answered for Blanco and Bexar. More conditions now keeps each failed piece's error in `more.reasons`, and `crimeFailureText` explains it.
 - Added as road backups in v2.4.0 (checked live): Census TIGERweb Transportation layers 2, 6 and 8; OSRM `nearest`.
 - Checked from the live site on 2026-10-31 and left out: CMS hospital data (blocks browser requests); Urban Institute schools (ignores the county filter, so the smallest query is all of a state: about 9,700 rows, 19 s). OpenFEMA declarations answered and were added.
 - Tax exemptions come from the user (tick boxes on the parcel); appraisal districts each run their own systems with no shared API. Links go to the Comptroller's directory, `.../county-directory/<county letters>.php` (pattern checked for all 254 counties).

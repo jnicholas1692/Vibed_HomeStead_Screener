@@ -86,6 +86,37 @@ test("lookupCrime: when the FBI's service fails for the last year, the year befo
   await assert.rejects(loadScripts(["config.js", "scoring.js", "sources.js"], { fetch: busy }).get("lookupCrime")("TX", "Blanco", "KEY"), /HTTP 429/);
 });
 
+test("lookupCrime: when the FBI's service does not answer at all for the last year, the year before is used", async () => {
+  const agency = "Blanco County Sheriff's Office";
+  const last = new Date().getFullYear() - 1;
+  const answers = fakeFetch({
+    "/agency/byStateAbbr/TX": json({ BLANCO: [{ ori: "TX0160000", agency_name: agency, agency_type_name: "County", state_name: "Texas" }] }),
+    [`/V?from=01-${last - 1}`]: json(offenseReply(agency, 1, last - 1)),
+    [`/P?from=01-${last - 1}`]: json(offenseReply(agency, 2, last - 1)),
+  });
+  // An error page without CORS headers reaches a web page only as "Failed to fetch".
+  const fetch = async (url, options) => {
+    if (String(url).includes(`from=01-${last}`)) throw new TypeError("Failed to fetch");
+    return answers(url, options);
+  };
+  const crime = plain(await loadScripts(["config.js", "scoring.js", "sources.js"], { fetch }).get("lookupCrime")("TX", "Blanco", "KEY"));
+  assert.equal(crime.year, last - 1);
+});
+
+test("a crime failure is explained in plain words, and More conditions keeps the reason", async () => {
+  const text = app.get("crimeFailureText");
+  assert.equal(text(undefined), "");
+  assert.match(text("HTTP 429"), /hourly limit/);
+  assert.match(text("HTTP 503"), /FBI's service had a problem.*\(HTTP 503\)/);
+  assert.match(text("Timed out"), /too long/);
+  assert.match(text("Failed to fetch"), /did not answer/);
+  const fetch = fakeFetch({ "byStateAbbr": { status: 429, body: "slow down" } });
+  const more = plain(await loadScripts(["config.js", "scoring.js", "sources.js"], { fetch })
+    .get("lookupMore")({ lat: 30, lon: -98, state: "TX", county: "Blanco" }, "KEY", ["crime"]));
+  assert.deepEqual(more.failed, ["crime"]);
+  assert.equal(more.reasons.crime, "HTTP 429");
+});
+
 test("lookupCrime: a refused key asks for a new one; a county with no sheriff in the list says so", async () => {
   const refused = loadScripts(["config.js", "scoring.js", "sources.js"], { fetch: fakeFetch({ "byStateAbbr": { status: 403, body: "{}" } }) });
   assert.deepEqual(plain(await refused.get("lookupCrime")("TX", "Blanco", "BAD")), { needsKey: true, keyRejected: true });

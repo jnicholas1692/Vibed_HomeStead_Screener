@@ -243,6 +243,13 @@
 /* Pinned button bars: title on the left, actions on the right, always visible while the window scrolls. */
 .dlg-bar h2 { font-size: 1.1rem; padding: 0; margin: 0; align-self: center; }
 .dlg-bar .head-actions { align-items: center; }
+/* The row of jump buttons under the report's buttons. On narrow screens it stays one line and scrolls sideways inside itself. */
+.jump-bar { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; padding-top: 8px; border-top: 1px solid var(--line); }
+.jump-bar .btn.small { font-weight: 400; font-size: 0.8rem; min-height: 26px; padding: 2px 9px; }
+@media (max-width: 900px) {
+  .jump-bar { flex-wrap: nowrap; overflow-x: auto; padding-top: 6px; padding-bottom: 2px; }
+  .jump-bar .btn.small { flex: none; }
+}
 .settings-bar { display: grid; gap: 8px; }
 .bar-row { display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: space-between; align-items: center; }
 .tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); }
@@ -334,7 +341,8 @@
   .rgroup[open] > summary::before { transform: rotate(45deg); }
   .rgroup > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .rgroup-body { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-  .rgroup-body > h3:first-child { margin-top: 0; }
+  .rgroup-body > .rsection:first-child > h3:first-child { margin-top: 0; }
+  .rsection { display: flex; flex-direction: column; gap: 8px; min-width: 0; }   /* one report section, so a jump button can scroll to it */
   .order-group { margin-left: auto; min-width: 0; max-width: 45%; text-align: right; font-size: 0.8rem; }
   @media print { .rgroup { border: 0; } .rgroup > summary::before { display: none; } }
 
