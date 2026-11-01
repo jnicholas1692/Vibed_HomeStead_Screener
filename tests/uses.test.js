@@ -21,7 +21,7 @@ test("every slider names two real settings, and the defaults point the right way
   // Every scoring range in the settings has a slider (the detour factor and speed are single numbers).
   const covered = PAIRS.flatMap((p) => [p.good, p.bad]);
   assert.equal(new Set(covered).size, covered.length);
-  assert.equal(covered.length, 16);
+  assert.equal(covered.length, 22);
 });
 
 test("every use's recommendations point the right way, fit their slider, and name real criteria", () => {

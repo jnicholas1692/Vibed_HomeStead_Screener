@@ -60,6 +60,21 @@ const scoreHazards = (hazards) => (hazards && hazards.overallLevel >= 0 ? HAZARD
 // Depth to water at the nearest monitoring well (the first in the list), or null.
 const nearestWaterDepth = (gw) => (gw && gw.wells && gw.wells.length ? gw.wells[0].depthFt : null);
 
+// The nearest hospital designated for maternal care (Texas only), with its drive minutes (routed, or estimated), or null.
+function deliveryHospital(site, s) {
+  const list = site.texas && site.texas.maternal && site.texas.maternal.hospitals;
+  const h = list && list[0];
+  if (!h) return null;
+  return { ...h, minutes: h.driveMin != null ? h.driveMin : driveMinutes(h.miles, s) };
+}
+
+// The nearer of child care and a preschool, as { key, place, minutes }, or null when neither was found.
+function nearestChildcare(site, s) {
+  const options = ["childcare", "preschool"].map((key) => ({ key, place: (site.places || {})[key], minutes: placeDriveMinutes(site, key, s) }))
+    .filter((o) => o.minutes != null);
+  return options.length ? options.reduce((a, b) => (b.minutes < a.minutes ? b : a)) : null;
+}
+
 // Drive minutes to one kind of nearby place (routed when we have it), or null when none was found.
 function placeDriveMinutes(site, kind, s) {
   const place = (site.places || {})[kind];
@@ -100,6 +115,9 @@ function findDealbreakers(parcel, s, parts) {
   if (on.hospital && parts.hospital === 0) found.push(`Hospital is ${s.hospitalMaxMin} minutes or more away`);
   if (on.grocery && parts.grocery === 0) found.push(`Grocery store is ${s.groceryMaxMin} minutes or more away`);
   if (on.agValuation && parts.agValuation === 0) found.push("No ag or wildlife valuation");
+  if (on.delivery && parts.delivery === 0) found.push(`Delivery hospital is ${s.deliveryMaxMin} minutes or more away`);
+  if (on.pediatrician && parts.pediatrician === 0) found.push(`Pediatrician is ${s.pediatricianMaxMin} minutes or more away`);
+  if (on.childcare && parts.childcare === 0) found.push(`Child care is ${s.childcareMaxMin} minutes or more away`);
   return found;
 }
 
@@ -125,7 +143,8 @@ const SORTS = {
 
 // The unit of each criterion's number. Criteria that are a rating rather than a measurement
 // (septic, flood risk, natural hazards, ag or wildlife valuation) use their 0 to 100 score instead.
-const CRITERION_UNITS = { price: "$", slope: "%", rain: "in/year", airport: "min", internet: "Mbps", groundwater: "ft", hospital: "min", grocery: "min" };
+const CRITERION_UNITS = { price: "$", slope: "%", rain: "in/year", airport: "min", internet: "Mbps", groundwater: "ft", hospital: "min", grocery: "min",
+  delivery: "min", pediatrician: "min", childcare: "min" };
 const criterionUnit = (key) => CRITERION_UNITS[key] || "score";
 
 // What a criterion found for a parcel, as a number in its unit, or null when there is no data.
@@ -140,7 +159,10 @@ function criterionNumber(key, parcel, s) {
     case "internet": return site.internet ? (site.internet.bestMbps ?? 0) : null;   // satellite only or none counts as 0
     case "groundwater": return nearestWaterDepth(site.groundwater);
     case "hospital":
-    case "grocery": return minutes(placeDriveMinutes(site, key, s));
+    case "grocery":
+    case "pediatrician": return minutes(placeDriveMinutes(site, key, s));
+    case "delivery": { const h = deliveryHospital(site, s); return h ? minutes(h.minutes) : null; }
+    case "childcare": { const c = nearestChildcare(site, s); return c ? minutes(c.minutes) : null; }
     default: {
       const score = criterionScores(parcel, s)[key];
       return score == null ? null : Math.round(score);
@@ -434,6 +456,7 @@ function sourceKeysUsed(parcel) {
     if (ok("wells")) used.push("txWells");
     if (ok("pipelines") || ok("oilGasWells")) used.push("txRrc");
     if (ok("edwards")) used.push("txEdwards");
+    if ((tx.maternal && ok("maternal")) || (tx.neonatal && ok("neonatal"))) used.push("txMaternal");
   }
   return used;
 }
@@ -580,6 +603,7 @@ function buildComparison(items, s) {
     price: "Asking price", flood: "In a flood zone?", septic: "Septic suitability", slope: "Slope", rain: "Rain per year",
     airport: "Drive to airport", internet: "Internet (best non-satellite)", groundwater: "Groundwater depth (nearest well)",
     hazards: "Natural hazard risk (FEMA)", hospital: "Hospital (emergency)", grocery: "Grocery store", agValuation: "Tax exemptions",
+    pediatrician: "Pediatrician", childcare: "Child care",
   };
   const covered = new Set(chosen.map((key) => sameAs[key]));
   const rowUnlessCovered = (label, ...rest) => { if (!covered.has(label)) row(label, ...rest); };
@@ -602,7 +626,8 @@ function buildComparison(items, s) {
   rowUnlessCovered("Drive to airport", airport, items.map((it, i) => (airport[i] == null ? "unknown" : `${Math.round(airport[i])} min (${site(it).nearestAirport})`)), "smaller");
   const mbps = items.map((it) => (site(it).internet ? (site(it).internet.bestMbps == null ? 0 : site(it).internet.bestMbps) : null));
   rowUnlessCovered("Internet (best non-satellite)", mbps, items.map((it, i) => (mbps[i] == null ? "unknown" : (mbps[i] === 0 ? "Satellite or none listed" : mbps[i] + " Mbps"))), "larger");
-  for (const kind of PLACE_KINDS) {
+  // Family kinds of places only when one of the parcels has them (they are looked up for the ages you ticked).
+  for (const kind of PLACE_KINDS.filter((k) => !k.family || items.some((it) => site(it).places && k.key in site(it).places))) {
     const minutes = items.map((it) => { const place = (site(it).places || {})[kind.key]; return place ? placeMinutes(place, s) : null; });
     rowUnlessCovered(kind.label, minutes, items.map((it, i) => {
       const places = site(it).places;
@@ -671,10 +696,11 @@ function recommendedRanges(uses) {
   return out;
 }
 
-// The criteria worth ticking for the ticked uses, in the default criteria order, with no repeats.
-function suggestedCriteria(uses) {
+// The criteria worth ticking for the ticked uses and family stages, in the default criteria order, with no repeats.
+function suggestedCriteria(uses, family) {
   const wanted = new Set();
   for (const [use, on] of Object.entries(uses || {})) if (on && LAND_USES[use]) for (const key of LAND_USES[use].criteria) wanted.add(key);
+  for (const [stage, on] of Object.entries(family || {})) if (on && FAMILY_STAGES[stage]) for (const key of FAMILY_STAGES[stage].criteria) wanted.add(key);
   return DEFAULT_SETTINGS.criteria.order.filter((key) => wanted.has(key));
 }
 
@@ -749,6 +775,9 @@ function criterionScores(parcel, s) {
     hospital: range(placeDriveMinutes(site, "hospital", s), s.hospitalFullMin, s.hospitalMaxMin),
     grocery: range(placeDriveMinutes(site, "grocery", s), s.groceryFullMin, s.groceryMaxMin),
     agValuation: (() => { const v = openSpaceValuation(parcel).value; return v === null ? null : v ? 100 : 0; })(),
+    delivery: range(deliveryHospital(site, s) && deliveryHospital(site, s).minutes, s.deliveryFullMin, s.deliveryMaxMin),
+    pediatrician: range(placeDriveMinutes(site, "pediatrician", s), s.pediatricianFullMin, s.pediatricianMaxMin),
+    childcare: range(nearestChildcare(site, s) && nearestChildcare(site, s).minutes, s.childcareFullMin, s.childcareMaxMin),
   };
 }
 
@@ -807,11 +836,22 @@ function criterionValueText(key, parcel, s, short = false) {
       return v.value ? (v.from === "appraisal" ? "Likely (Texas land category D1)" : "Yes (you entered)") : "No (you entered)";
     }
     case "hospital":
-    case "grocery": {
+    case "grocery":
+    case "pediatrician": {
       const m = placeDriveMinutes(site, key, s);
-      if (m == null) return site.places ? "none found" : "no data";
+      if (m == null) return site.places && key in site.places ? "none found" : "no data";
       const place = site.places[key];
       return short ? mins(m) : `${mins(m)} to ${place.name}${place.driveMin == null ? " (estimated)" : ""}`;
+    }
+    case "delivery": {
+      const h = deliveryHospital(site, s);
+      if (!h) return site.texas && site.texas.maternal ? "none within 150 miles" : "no data";
+      return short ? mins(h.minutes) : `${mins(h.minutes)} to ${h.name}${h.driveMin == null ? " (estimated)" : ""}`;
+    }
+    case "childcare": {
+      const c = nearestChildcare(site, s);
+      if (!c) return site.places && ("childcare" in site.places || "preschool" in site.places) ? "none found" : "no data";
+      return short ? mins(c.minutes) : `${mins(c.minutes)} to ${c.place.name}${c.place.driveMin == null ? " (estimated)" : ""}`;
     }
     default: return "?";
   }

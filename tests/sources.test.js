@@ -1077,9 +1077,12 @@ test("overpassQuery goes first to the server that answered last time", async () 
 
 test("the places query asks for exact names and tags, never a name pattern", () => {
   const app = loadScripts(["config.js", "sources.js"]);
+  // Every kind, family ones included. A name pattern makes the server search every name in the area, which times out
+  // (checked again on 2026-11-01: even one limited to doctors' offices took 24 seconds or timed out).
   const query = app.get("buildPlacesQuery")(30, -98, 12000, app.get("PLACE_KINDS"));
-  assert.ok(!/\["name"~/.test(query), query);   // a name pattern makes the server search every name, which times out
+  assert.ok(!/\["name"~/.test(query), query);
   assert.ok(query.includes('["brand"="Costco"]') && query.includes('["shop"="agrarian"]'));
+  assert.ok(query.includes('["healthcare:speciality"~"p(a)?ediatric"]'));
 });
 
 // ---- Clear data ----

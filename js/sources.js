@@ -682,7 +682,41 @@ const PLACE_KINDS = [
   { key: "hospital", label: "Hospital (emergency)",
     overpass: ['["amenity"="hospital"]["emergency"!="no"]'],
     test: (tags) => tags.amenity === "hospital" && tags.emergency !== "no" },
+  // The kinds below are looked up only when a family stage you ticked in Settings needs them (`family: true`).
+  // Doctors are matched by their specialty tag only. Matching office names as well would find more, but on
+  // 2026-11-01 even a narrow name pattern took 24 seconds or timed out on the free servers.
+  { key: "obgyn", label: "OB-GYN", family: true,
+    // Midwives and birth centers have their own tags and count here too.
+    overpass: ['["healthcare:speciality"~"gynaecolog|obstetric"]', '["healthcare"~"^(midwife|birthing_centre|birthing_center)$"]'],
+    test: (tags) => /gynaecolog|obstetric/i.test(tags["healthcare:speciality"] || "") || /^(midwife|birthing_cent(re|er))$/.test(tags.healthcare || "") },
+  { key: "pediatrician", label: "Pediatrician", family: true,
+    // "p(a)?ediatric" matches both the British spelling OpenStreetMap asks for and the American one people also use.
+    overpass: ['["healthcare:speciality"~"p(a)?ediatric"]'],
+    test: (tags) => /p(a)?ediatric/i.test(tags["healthcare:speciality"] || "") },
+  { key: "pharmacy", label: "Pharmacy", family: true,
+    overpass: ['["amenity"="pharmacy"]'],
+    test: (tags) => tags.amenity === "pharmacy" },
+  { key: "childcare", label: "Child care", family: true,
+    overpass: ['["amenity"="childcare"]'],
+    test: (tags) => tags.amenity === "childcare" },
+  // In the United States, OpenStreetMap tags preschools and pre-K programs as "kindergarten".
+  { key: "preschool", label: "Preschool or pre-K", family: true,
+    overpass: ['["amenity"="kindergarten"]'],
+    test: (tags) => tags.amenity === "kindergarten" },
+  { key: "library", label: "Library", family: true,
+    overpass: ['["amenity"="library"]'],
+    test: (tags) => tags.amenity === "library" },
+  { key: "playground", label: "Playground", family: true,
+    overpass: ['["leisure"="playground"]'],
+    test: (tags) => tags.leisure === "playground" },
 ];
+
+// The kinds of places a parcel's lookup needs: the everyday ones always, and family ones for the stages you ticked.
+function neededPlaceKinds(s) {
+  const wanted = new Set();
+  for (const [stage, info] of Object.entries(FAMILY_STAGES)) if (s && s.family && s.family[stage]) for (const key of info.places) wanted.add(key);
+  return PLACE_KINDS.filter((kind) => !kind.family || wanted.has(kind.key));
+}
 
 // The detail window shows the kinds in these groups. `kinds` lists keys from PLACE_KINDS.
 const PLACE_GROUPS = [
@@ -778,10 +812,10 @@ function nearestMatch(elements, kind, lat, lon) {
   return best;
 }
 
-// Returns { grocery: {...} or null, hardware: ..., and so on for every kind in PLACE_KINDS }.
-async function lookupPlaces(lat, lon) {
+// Returns { grocery: {...} or null, hardware: ..., and so on for every kind asked (the everyday kinds unless `kinds` says).
+async function lookupPlaces(lat, lon, kinds = PLACE_KINDS.filter((kind) => !kind.family)) {
   const found = {};
-  let remaining = PLACE_KINDS;
+  let remaining = kinds;
   for (const radius of PLACE_SEARCH_RADII_M) {
     if (remaining.length === 0) break;
     const elements = await overpassQuery(buildPlacesQuery(lat, lon, radius, remaining));
@@ -1663,6 +1697,58 @@ const nearPoint = (lat, lon, miles, outFields, count) => ({ geometry: `${lon},${
 
 // The Texas pieces, in the order they are looked up (the keys of `jobs` below).
 const TEXAS_PIECES = ["parcel", "groundwaterDistrict", "schoolDistrict", "wells", "pipelines", "oilGasWells", "edwards"];
+// Asked only when a ticked family stage needs them (see texasPiecesNeeded).
+const TEXAS_FAMILY_PIECES = ["maternal", "neonatal"];
+function texasPiecesNeeded(s) {
+  const maternity = Object.entries(FAMILY_STAGES).some(([stage, info]) => info.maternity && s && s.family && s.family[stage]);
+  return maternity ? [...TEXAS_PIECES, ...TEXAS_FAMILY_PIECES] : TEXAS_PIECES;
+}
+
+// The current addresses of the DSHS maternal and neonatal layers, found from the DSHS map (once per visit), or the last
+// known ones if the map cannot be read. The map's layer titles start with "Maternal Designated Hospitals" and so on.
+let dshsLayers = null;
+function dshsLayerUrls() {
+  if (!dshsLayers) {
+    dshsLayers = getJSON(`https://www.arcgis.com/sharing/rest/content/items/${TX_DSHS_MAP_ITEM}/data?f=json`, {}, 20000)
+      .then((map) => {
+        const find = (start) => ((map.operationalLayers || []).find((l) => l.url && String(l.title || "").trim().startsWith(start)) || {}).url;
+        return { maternal: find("Maternal Designated Hospitals") || TX_DSHS_FALLBACK_LAYERS.maternal, neonatal: find("Neonatal Designated Hospitals") || TX_DSHS_FALLBACK_LAYERS.neonatal };
+      })
+      .catch(() => ({ ...TX_DSHS_FALLBACK_LAYERS }));
+  }
+  return dshsLayers;
+}
+
+// Designated hospitals -> the three nearest: [{ name, level, city, miles, lat, lon }]. Only these fields are kept.
+function nearestDesignated(features, lat, lon) {
+  const title = (s) => String(s || "").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());   // "MARBLE FALLS" -> "Marble Falls"
+  return (features || [])
+    .filter((f) => f.geometry && Number.isFinite(f.geometry.x) && Number.isFinite(f.geometry.y) && f.attributes)
+    .map((f) => ({
+      name: title(f.attributes.USER_Primary_Name).replace(/\bOf\b/g, "of").replace(/\b(Ii|Iii|Iv)\b/g, (m) => m.toUpperCase()),
+      level: f.attributes.USER_Designate_Level || null,
+      city: title(f.attributes.USER_Main_City) || null,
+      lat: f.geometry.y, lon: f.geometry.x,
+      miles: Math.round(haversineMiles(lat, lon, f.geometry.y, f.geometry.x) * 10) / 10,
+    }))
+    .sort((a, b) => a.miles - b.miles)
+    .slice(0, 3);
+}
+
+// Designated hospitals within 150 miles, nearest first, with a routed drive time to the nearest one when the router answers.
+async function lookupDesignated(which, lat, lon) {
+  const url = (await dshsLayerUrls())[which];
+  const q = new URLSearchParams({ geometry: `${lon},${lat}`, geometryType: "esriGeometryPoint", inSR: "4326", spatialRel: "esriSpatialRelIntersects",
+    distance: "150", units: "esriSRUnit_StatuteMile", outFields: "USER_Primary_Name,USER_Designate_Level,USER_Main_City", returnGeometry: "true", outSR: "4326", f: "json" });
+  const data = await getJSON(`${url}/query?${q}`, {}, 30000);
+  if (data.error) throw new Error("DSHS designation map error");
+  const hospitals = nearestDesignated(data.features, lat, lon);
+  if (hospitals[0]) {
+    const route = await routeInfo(lat, lon, hospitals[0].lat, hospitals[0].lon).catch(() => null);
+    if (route) { hospitals[0].driveMin = route.minutes; hospitals[0].roadMiles = route.miles; }
+  }
+  return { hospitals };
+}
 
 // Each piece is looked up on its own: `failed` lists the pieces whose service did not answer, and everything else still shows.
 // A value of null means the service answered and nothing was found there. `only` asks just the named pieces.
@@ -1708,8 +1794,10 @@ async function lookupTexas(lat, lon, only = null) {
       const { features } = await arcgisFeatures(EDWARDS_RECHARGE_URL, atPoint(lat, lon, "RECHARGE_ZONE"), "Edwards zone");
       return { inRechargeZone: features.length > 0 };
     },
+    maternal: () => lookupDesignated("maternal", lat, lon),
+    neonatal: () => lookupDesignated("neonatal", lat, lon),
   };
-  const names = Object.keys(jobs).filter((name) => !only || only.includes(name));
+  const names = Object.keys(jobs).filter((name) => (only || TEXAS_PIECES).includes(name));   // family pieces only when asked by name
   const settled = await Promise.allSettled(names.map((n) => jobs[n]()));
   const out = { failed: [] };
   settled.forEach((r, i) => {
@@ -1744,7 +1832,12 @@ const SOURCE_STEPS = [
   ["Rainfall", async (p) => { p.site.annualRainIn = await lookupRain(p.lat, p.lon); }],
   ["Airport",  async (p) => { Object.assign(p.site, nearestAirport(p.lat, p.lon, activeAirports(settings))); }],
   ["Internet", async (p) => { p.site.internet = await lookupInternet(p.lat, p.lon); }],
-  ["Nearby",   async (p) => { p.site.places = await lookupPlaces(p.lat, p.lon); }],
+  ["Nearby",   async (p) => {
+    // Only the kinds not looked up yet (all of them the first time), so ticking a family stage later asks just for its places.
+    const have = p.site.places || {};
+    const ask = neededPlaceKinds(settings).filter((kind) => !(kind.key in have));
+    p.site.places = { ...have, ...(await lookupPlaces(p.lat, p.lon, ask)) };
+  }],
   ["Hazards",  async (p) => { p.site.hazards = await lookupHazards(p.lat, p.lon); }],
   ["Hardiness", async (p) => { p.site.hardiness = await lookupHardiness(p.lat, p.lon); }],
 ];
@@ -1764,7 +1857,9 @@ const STEP_VALUES = {
   "Soil": (p) => p.site.septicRating, "Soil details": (p) => p.site.soilDetails, "USDA": (p) => p.site.usda,
   "Public land": (p) => p.site.publicLand, "Groundwater": (p) => p.site.groundwater, "Wetlands": (p) => p.site.wetlands,
   "Roads": (p) => p.site.roads, "Climate": (p) => p.site.climate, "Rainfall": (p) => p.site.annualRainIn,
-  "Internet": (p) => p.site.internet, "Nearby": (p) => p.site.places, "Hazards": (p) => p.site.hazards,
+  "Internet": (p) => p.site.internet, "Hazards": (p) => p.site.hazards,
+  // Nearby places count as missing when any kind the ticked family stages need was never looked up.
+  "Nearby": (p, s) => (p.site.places && neededPlaceKinds(s).every((kind) => kind.key in p.site.places) ? p.site.places : undefined),
   "Hardiness": (p) => p.site.hardiness,
 };
 
@@ -1788,7 +1883,7 @@ function planLookups(parcel, mode, s) {
   const site = parcel.site || {};
   const everything = mode === "all" || !parcel.fetchedAt;
   const failed = failedSteps(parcel);
-  const isMissing = (label) => everything || failed.includes(label) || STEP_VALUES[label]({ ...parcel, site }) === undefined;
+  const isMissing = (label) => everything || failed.includes(label) || STEP_VALUES[label]({ ...parcel, site }, s) === undefined;
   // The airport is worked out from the built-in list, with no web request, so it is always redone.
   const steps = SOURCE_STEPS.map(([label]) => label).filter((label) => label === "Airport" || isMissing(label));
   const countyAgain = steps.includes("County");
@@ -1801,7 +1896,8 @@ function planLookups(parcel, mode, s) {
   // Texas is only looked up for Texas parcels; a parcel whose state just turned up may need it for the first time.
   let texas = false;
   if (isTexasParcel(parcel)) {
-    texas = everything ? null : missingPieces(site.texas, TEXAS_PIECES);
+    const needed = texasPiecesNeeded(s);
+    texas = everything || !site.texas ? needed : missingPieces(site.texas, needed);
     if (Array.isArray(texas) && texas.length === 0) texas = false;
   }
   const total = steps.length + (routes ? 1 : 0) + (tax ? 1 : 0) + (more !== false ? 1 : 0) + (texas !== false ? 1 : 0);

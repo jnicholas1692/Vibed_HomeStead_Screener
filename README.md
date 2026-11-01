@@ -37,6 +37,7 @@ This is a personal test of AI-assisted development. I am using it to see how far
 - FEMA natural hazard ratings for all 18 hazards FEMA rates (tornado, wildfire, hail, flooding, earthquake and more), plus FEMA's social vulnerability and community resilience ratings
 - Federal disaster declarations for the county in the last 10 years
 - People and community for the neighborhood (census tract) next to the whole county: population, age, under 18, income, poverty, college degrees, working from home, broadband and home value, with no key needed
+- Tick who is moving with you (expecting or a newborn, baby or toddler, pre-K or kindergarten, elementary, middle or high school) to add a Family needs section: for Texas parcels the nearest hospitals the state designates for delivering babies and for newborn intensive care, with their levels; the nearest OB-GYN, pediatrician, pharmacy, child care, preschool, library and playground; and what to know at each age, with links to the Texas child care search and school report cards
 - Crime reported by the county sheriff to the FBI for the last full year, per 100,000 people next to Texas and the US (needs a free api.data.gov key in Settings)
 - Which way the ground slopes, and how fast water soaks through the soil
 - For Texas parcels, the appraisal district's parcel outline drawn on the map
@@ -79,6 +80,7 @@ This is a personal test of AI-assisted development. I am using it to see how far
 | Disaster declarations | OpenFEMA Disaster Declarations Summaries |
 | People and community | Census Reporter (US Census Bureau American Community Survey 5-year estimates) |
 | Crime | FBI Crime Data Explorer (free api.data.gov key) |
+| Delivery and newborn care hospitals (Texas) | Texas Department of State Health Services, maternal and neonatal designated hospitals (EMS/Trauma Systems map) |
 | County property tax rate | Census American Community Survey (free API key) |
 
 ## Privacy
@@ -100,6 +102,7 @@ There is no account and no backend. To look up a parcel, the app sends that parc
 - The hardiness zone is looked up by ZIP code, from a volunteer-run copy of the 2023 USDA data, so it can differ a little from your exact lot.
 - Schools, hazards, hardiness zone and everything added in v1.3 are shown but not scored.
 - Soil, climate, wetlands, protected land and groundwater describe a point, a model grid or a nearby well, not your whole lot. Road data shows a road nearby, not legal access.
+- Hospitals that deliver babies are only known for Texas (from the state's designation list). Doctors' offices, child care and preschools are thinly mapped in OpenStreetMap, so "none found" often means "not on the map".
 - Exemptions and the taxable value after exemptions are not in the free statewide Texas parcel data. Tick exemptions yourself from the listing or the appraisal district; the yearly tax shown for Texas parcels is before exemptions and ag valuation, so a real bill can be much lower.
 - The county tax rate is a median for homes. Vacant land, farm exemptions and special districts can make a real bill very different.
 
@@ -138,6 +141,7 @@ Add `--headed` to watch the browser. Passing tests cannot prove a real service s
 - **v2.0.2** The main page links to the GitHub repository
 - **v2.1.0** Hover explanations on every data point and Settings option; hunting removed; a Texas details section (parcel record, groundwater district, school district, wells, pipelines, oil and gas, Edwards zone) shown only for Texas parcels; a More local conditions section (county profile, drought, weather alerts, wind, facilities); report grouped into collapsible categories. 133 unit tests.
 - **v2.2.0** A Get a free Census API key link right under the key box in Settings; the page footer shows the version and the date of the last update. 136 unit tests.
+- **v2.9.0** Who is moving with you: six family ages in Settings, a Family needs report section with Texas-designated delivery and newborn care hospitals (levels and drive time), nearby OB-GYNs, pediatricians, pharmacies, child care, preschools, libraries and playgrounds (looked up only for the ages you tick), and advice for each age; three new optional criteria (delivery hospital, pediatrician and child care drive). 195 unit tests, 265 browser checks.
 - **v2.8.0** A Columns menu to add or remove list columns from your ticked criteria; sorting by any criterion both ways, from the Sort menu or a column heading's arrow; a value filter (at most or at least) that never hides a parcel with no data; all remembered in the browser. 188 unit tests, 247 browser checks.
 - **v2.7.1** After an update, browsers load all of the page's new files together instead of mixing cached old ones with new ones for a few minutes (each script and stylesheet link carries the version number). 184 unit tests.
 - **v2.7.0** A People and safety category: People and community (tract and county survey figures from Census Reporter, no key) replaces the county profile that needed a Census key, and Crime shows what the county sheriff reported to the FBI, compared with Texas and the US, once you add a free api.data.gov key in Settings. 183 unit tests, 229 browser checks.

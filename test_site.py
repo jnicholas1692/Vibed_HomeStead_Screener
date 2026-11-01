@@ -58,7 +58,7 @@ ALLOWED_HOSTS = {
     "api.census.gov", "fwspublicservices.wim.usgs.gov", "rdgdwe.sc.egov.usda.gov",
     "api.waterdata.usgs.gov", "api.weather.gov", "power.larc.nasa.gov", "echodata.epa.gov",
     "feature.geographic.texas.gov", "services.twdb.texas.gov", "gis.rrc.texas.gov", "www.fema.gov",
-    "tigerweb.geo.census.gov", "api.censusreporter.org", "api.usa.gov",
+    "tigerweb.geo.census.gov", "api.censusreporter.org", "api.usa.gov", "www.arcgis.com", "services3.arcgis.com",
 }
 
 # The smallest valid PNG (one clear pixel), handed back for map tiles.
@@ -172,6 +172,18 @@ def fake_service(url, post_body, mode):
             "geometry": {"coordinates": [LON, LAT]},
             "properties": {"countrycode": "US", "housenumber": "100", "street": "Main Street",
                            "city": "Blanco", "state": "Texas", "postcode": "78606"}}]})
+    if host == "www.arcgis.com" and "/content/items/" in url:
+        # The DSHS map: its layer list, from which the app finds the current maternal and neonatal layers.
+        return json_reply({"operationalLayers": [
+            {"title": "Maternal Designated Hospitals _ Test", "url": "https://services3.arcgis.com/test/arcgis/rest/services/Maternal_Test/FeatureServer/0"},
+            {"title": "Neonatal Designated Hospitals _ Test", "url": "https://services3.arcgis.com/test/arcgis/rest/services/Neonatal_Test/FeatureServer/1"}]})
+    if host == "services3.arcgis.com" and "/query" in url:
+        level = "II - Specialty Care" if "Maternal" in url else "I - Well Care"
+        def hospital(name, city, x, y):
+            return {"attributes": {"USER_Primary_Name": name, "USER_Main_City": city, "USER_Designate_Level": level}, "geometry": {"x": x, "y": y}}
+        return json_reply({"features": [
+            hospital("METHODIST HOSPITAL HILL COUNTRY", "FREDERICKSBURG", -98.881, 30.2619),
+            hospital("BAYLOR SCOTT & WHITE MEDICAL CENTER - MARBLE FALLS", "MARBLE FALLS", -98.305, 30.5115)]})
     if host == "api.censusreporter.org":
         # Census survey tables for the tract and the county (a few of the real Blanco County figures).
         def place(pop, income):
@@ -374,10 +386,10 @@ def test_settings(b):
     check("Settings opens", page.is_visible("#dlg-criteria"))
     check("six criteria start ticked, each counting the same", "6 ticked, each counts 17%" in page.text_content("#c-criteria-count"))
     rows = page.eval_on_selector_all("#c-criteria-list li", "els => els.map((li) => li.dataset.key)")
-    check("all twelve criteria are listed", len(rows) == 12 and rows[-1] == "agValuation", str(rows))
+    check("all fifteen criteria are listed", len(rows) == 15 and rows[-3:] == ["delivery", "pediatrician", "childcare"], str(rows))
     no_tip = page.evaluate("() => [...document.querySelectorAll('#c-criteria-list .order-name')].filter((n) => !n.querySelector('.help')).length")
     check("every criterion name has a hover explanation", no_tip == 0)
-    check("every criterion has a dealbreaker switch", page.locator("#c-criteria-list input[data-deal]").count() == 12)
+    check("every criterion has a dealbreaker switch", page.locator("#c-criteria-list input[data-deal]").count() == 15)
     help_missing = page.evaluate("""() => [...document.querySelectorAll('#criteria-fields input[data-path]')]
         .filter((input) => !input.closest('label').querySelector('.help')).map((input) => input.dataset.path)""")
     check("every number box in Settings has a hover explanation", help_missing == [], str(help_missing))
@@ -429,8 +441,8 @@ def test_sliders_and_uses(b):
     open_settings(page, "scoring")
     box = lambda path: page.input_value(f'input[data-path="{path}"]')
     thumb = lambda pair, which: page.locator(f'.range-pair[data-pair="{pair}"] input.dual-{which}')
-    check("every scoring range has a slider with two thumbs", page.locator(".range-pair").count() == 8
-          and page.locator(".range-pair input[type=range]").count() == 16)
+    check("every scoring range has a slider with two thumbs", page.locator(".range-pair").count() == 11
+          and page.locator(".range-pair input[type=range]").count() == 22)
     check("each thumb is labelled for screen readers", thumb("slope", "lo").get_attribute("aria-label") == "Slope: full marks at or below (%)")
     check("the boxes start at the saved values", box("slopeIdeal") == "5" and box("slopeMax") == "20")
 
@@ -464,7 +476,7 @@ def test_sliders_and_uses(b):
 
     # Uses: nothing ticked means no recommendation, and the buttons wait.
     check("the recommendation buttons wait for a use", page.is_disabled("#c-apply-recommended") and page.is_disabled("#c-tick-suggested"))
-    check("every use has a hover explanation", page.locator(".use-list .help").count() == 5)
+    check("every use has a hover explanation", page.locator("label:has(input[data-use]) .help").count() == 5)
     page.check('input[data-use="farm"]')
     page.check('input[data-use="garden"]')
     rec = page.text_content('[data-rec="slope"]')
@@ -610,6 +622,59 @@ def test_people_and_crime(b):
     no_tip = page.evaluate("() => [...document.querySelectorAll('#detail .kv > div:nth-child(odd), #detail td:first-child')].filter((d) => d.textContent.trim() && !d.querySelector('.help') && d.closest('details[data-group=community]')).map((d) => d.textContent.trim())")
     check("every label in the new sections is explained", no_tip == [], str(no_tip))
     close_dialog(page, "dlg-detail")
+
+
+def test_family_needs(b):
+    section("Family needs: who is moving with you")
+    page = b.page
+    page.locator("#list .row-name", has_text="Blanco test 10 acres").click()
+    page.wait_for_selector("#dlg-detail[open]")
+    check("no Family needs section until an age is ticked", "Family needs" not in page.text_content("#detail .dlg-body"))
+    close_dialog(page, "dlg-detail")
+    open_settings(page, "scoring")
+    boxes = page.locator("label:has(input[data-family])")
+    check("Settings asks who is moving with you, six ages", boxes.count() == 6)
+    check("every age has a hover explanation", page.locator("label:has(input[data-family]) .help").count() == 6)
+    page.check('input[data-family="expecting"]')
+    page.check('input[data-family="prek"]')
+    summary = page.text_content("#c-use-summary")
+    check("the suggestion names the ages and their criteria", "expecting or a newborn" in summary and "Delivery hospital drive" in summary and "Child care drive" in summary, summary)
+    check("Use recommended values waits for a land use", page.is_disabled("#c-apply-recommended") and page.is_enabled("#c-tick-suggested"))
+    page.click("#c-tick-suggested")
+    ticked = page.eval_on_selector_all("#c-criteria-list input[data-crit]:checked", "els => els.map((e) => e.dataset.crit)")
+    check("Tick suggested criteria ticks the family criteria", {"delivery", "pediatrician", "childcare", "hospital"} <= set(ticked), str(ticked))
+    save_settings(page)
+
+    # Refresh data asks only for what the new ages need: the DSHS layers, and the new kinds of places.
+    page.locator("#list .row-name", has_text="Blanco test 10 acres").click()
+    page.wait_for_selector("#dlg-detail[open]")
+    seen = len(b.requests)
+    page.click("[data-refresh][data-mode=missing]")
+    wait_for_report(page)
+    asked = {urlparse(u).hostname for u in b.requests[seen:]}
+    check("Refresh data asks the DSHS designation map", {"www.arcgis.com", "services3.arcgis.com"} <= asked, str(sorted(asked)))
+    check("Refresh data does not ask the flood map or Census Reporter again", not ({"hazards.fema.gov", "api.censusreporter.org"} & asked), str(sorted(asked)))
+    detail = page.text_content("#detail")
+    check("the Family needs section appears", "Family needs" in detail)
+    family = page.text_content("details[data-group=community] .rgroup-body")
+    family = family[family.find("Family needs"):]
+    # Marble Falls is about 17 miles from the test spot and Fredericksburg about 29, so Marble Falls comes first.
+    check("the designated delivery hospitals are named, nearest first", 0 <= family.find("Baylor Scott & White Medical Center - Marble Falls") < family.find("Methodist Hospital Hill Country"),
+          family[family.find("Delivery hospital"):][:200])
+    check("the delivery hospital's level is shown", "Level II - Specialty Care" in detail)
+    check("newborn care (NICU) levels are shown", "Newborn care (NICU)" in detail and "Level I - Well Care" in detail)
+    check("Texas pre-K and kindergarten rules are explained", "4 by September 1" in detail and "5 by September 1" in detail)
+    check("prenatal and newborn advice is shown", "3 to 5 days after birth" in detail)
+    check("links to the Texas child care search and school report cards", page.locator('#detail a[href="https://childcare.hhs.texas.gov/Public/childcaresearch"]').count() >= 1
+          and page.locator('#detail a[href="https://txschools.gov/"]').count() >= 1)
+    check("the family places are listed", "Pediatrician" in detail and "OB-GYN" in detail and "Preschool or pre-K" in detail)
+    summary_rows = page.eval_on_selector_all(".summary-table tbody tr td:first-child", "els => els.map((e) => e.textContent.trim())")
+    check("the delivery criterion is in the report summary", "Delivery hospital drive" in summary_rows, str(summary_rows))
+    no_tip = page.evaluate("() => [...document.querySelectorAll('#detail .kv > div:nth-child(odd)')].filter((d) => !d.querySelector('.help')).map((d) => d.textContent.trim())")
+    check("every family label is explained", no_tip == [], str(no_tip))
+    close_dialog(page, "dlg-detail")
+    open_settings(page, "scoring")
+    page.click("#btn-reset-criteria")   # back to the defaults (no family ages) for the tests that follow
 
 
 def test_texas_tax_and_exemptions(b):
@@ -1046,7 +1111,7 @@ def main():
             # These run in order on one browser profile: settings first, so the Census key is set
             # before the parcel is looked up.
             for test in [test_page_and_footer, test_static_hover_help, test_settings, test_sliders_and_uses, test_criteria, test_add_errors,
-                         test_address_suggestions, test_full_report, test_road_backup_and_refresh, test_people_and_crime, test_texas_tax_and_exemptions,
+                         test_address_suggestions, test_full_report, test_road_backup_and_refresh, test_people_and_crime, test_family_needs, test_texas_tax_and_exemptions,
                          test_criteria_order_shows, test_export,
                          test_demo_list_compare, test_list_columns_sort_filter, test_clear_data]:
                 try:

@@ -494,6 +494,63 @@ function peopleHtml(more) {
     <p class="hint">Estimates from the Census Bureau's American Community Survey${people.release ? ` (${esc(people.release)})` : ""}, an average over five years of surveys, through Census Reporter. Small rural areas have wide margins of error, so treat close numbers as about the same.</p>`;
 }
 
+// "Family needs": for the ages you ticked in Settings, the places that matter and what to know. Empty when none is ticked,
+// so the section is left out of the report.
+function familyHtml(p) {
+  const stages = Object.keys(FAMILY_STAGES).filter((key) => settings.family && settings.family[key]);
+  if (!stages.length) return "";
+  const site = p.site || {};
+  const texas = isTexasParcel(p);
+  const sub = (text) => `<span class="sub">${text}</span>`;
+  const minutesText = (place) => `${Math.round(placeMinutes(place, settings))} min${place.driveMin == null ? " (estimated)" : ""}`;
+  // One row per kind of place the ticked ages need, each listed once, in the order of PLACE_KINDS.
+  const wanted = new Set(stages.flatMap((key) => FAMILY_STAGES[key].places));
+  const placeRows = PLACE_KINDS.filter((kind) => wanted.has(kind.key)).map((kind) => {
+    const places = site.places;
+    if (!places) return kv(kind.label, sub(notYetText()));
+    if (!(kind.key in places)) return kv(kind.label, sub("not looked up yet; use Refresh data"));
+    const place = places[kind.key];
+    return kv(kind.label, place ? `${esc(place.name)} ${sub(`${esc(minutesText(place))}, ${place.miles} mi`)}` : sub("none found in OpenStreetMap; ask locally"));
+  }).join("");
+  // Texas-designated delivery and newborn care hospitals, for "Expecting".
+  let designated = "";
+  if (stages.some((key) => FAMILY_STAGES[key].maternity)) {
+    if (!texas) {
+      designated = kv("Delivery hospital", sub("There is no public list of hospitals that deliver babies outside Texas that the app can read. Call the hospitals under Nearby and ask about labor and delivery and newborn care."));
+    } else {
+      const tx = site.texas || {};
+      const failed = tx.failed || [];
+      const list = (key) => {
+        if (failed.includes(key)) return sub("could not load; use Refresh data to try again");
+        if (!(key in tx)) return sub(site.texas ? "not looked up yet; use Refresh data" : notYetText());
+        const hospitals = (tx[key] && tx[key].hospitals) || [];
+        if (!hospitals.length) return sub("none designated within 150 miles");
+        return `<ul class="tight">${hospitals.map((h) => `<li>${esc(h.name)} ${sub(`${esc(h.city || "")}; Level ${esc(h.level || "?")}; ${h.driveMin != null ? `${h.driveMin} min drive` : `${h.miles} mi (about ${Math.round(driveMinutes(h.miles, settings))} min)`}`)}</li>`).join("")}</ul>`;
+      };
+      designated = kv("Delivery hospital", list("maternal")) + kv("Newborn care (NICU)", list("neonatal"));
+    }
+  }
+  const links = {
+    expecting: texas ? `<a href="${DATA_SOURCES.txMaternal.url}" target="_blank" rel="noopener">DSHS designation map</a>` : "",
+    toddler: texas ? `<a href="${TX_CHILDCARE_SEARCH_URL}" target="_blank" rel="noopener">Search Texas Child Care</a>` : "",
+    prek: texas ? `<a href="${TX_CHILDCARE_SEARCH_URL}" target="_blank" rel="noopener">Search Texas Child Care</a> &middot; <a href="${TX_SCHOOL_REPORT_CARDS_URL}" target="_blank" rel="noopener">Texas School Report Cards</a>` : "",
+    elementary: texas ? `<a href="${TX_SCHOOL_REPORT_CARDS_URL}" target="_blank" rel="noopener">Texas School Report Cards</a>` : "",
+    middle: texas ? `<a href="${TX_SCHOOL_REPORT_CARDS_URL}" target="_blank" rel="noopener">Texas School Report Cards</a>` : "",
+    high: texas ? `<a href="${TX_SCHOOL_REPORT_CARDS_URL}" target="_blank" rel="noopener">Texas School Report Cards</a>` : "",
+  };
+  const advice = stages.map((key) => {
+    const stage = FAMILY_STAGES[key];
+    const lines = [...stage.advice, ...(texas && stage.texas ? [stage.texas] : [])];
+    return `<div class="family-stage"><strong>${esc(stage.label)}</strong>${links[key] ? ` ${sub(links[key])}` : ""}<ul class="tight">${lines.map((line) => `<li>${esc(line)}</li>`).join("")}</ul></div>`;
+  }).join("");
+  return `
+      <h3>Family needs</h3>
+      <div class="kv">${designated}${placeRows}</div>
+      ${advice}
+      <p class="hint">Doctors' offices, child care and preschools are thinly mapped in OpenStreetMap, so "none found" often means "not on the map". Drive times marked estimated come from straight-line distance. Confirm with the providers, the school district and the hospital before you rely on any of this.</p>
+      ${(() => { const keys = sourceKeysUsed(p).filter((k) => k === "txMaternal" || k === "places"); return keys.length ? sourceHtml(keys, site) : ""; })()}`;
+}
+
 // "Crime": what the county sheriff reported to the FBI for the last full year, with Texas and US rates.
 function crimeHtml(more) {
   if (more === undefined || !("crime" in more || (more.failed || []).includes("crime"))) return `<p class="hint">${notYetText()}</p>`;
@@ -793,6 +850,7 @@ function openDetail(id) {
       <h3>People and community</h3>
       ${peopleHtml(site.more)}
       ${sourceKeysUsed(p).includes("censusReporter") ? sourceHtml("censusReporter", site) : ""}`,
+    family: familyHtml(p),
     crime: `
       <h3>Crime</h3>
       ${crimeHtml(site.more)}
@@ -1209,6 +1267,9 @@ const SCORING_FIELDS = [
   ["Groundwater: full marks at or above (ft)", "groundwaterFullFt"], ["Groundwater: zero at or below (ft)", "groundwaterZeroFt"],
   ["Hospital: full marks within (min)", "hospitalFullMin"], ["Hospital: zero at (min)", "hospitalMaxMin"],
   ["Grocery: full marks within (min)", "groceryFullMin"], ["Grocery: zero at (min)", "groceryMaxMin"],
+  ["Delivery hospital: full marks within (min)", "deliveryFullMin"], ["Delivery hospital: zero at (min)", "deliveryMaxMin"],
+  ["Pediatrician: full marks within (min)", "pediatricianFullMin"], ["Pediatrician: zero at (min)", "pediatricianMaxMin"],
+  ["Child care: full marks within (min)", "childcareFullMin"], ["Child care: zero at (min)", "childcareMaxMin"],
 ];
 
 // Number boxes for the Costs and loans tab.
@@ -1313,6 +1374,9 @@ const DEALBREAKER_RULES = {
   hospital: "if the nearest emergency hospital is at or beyond the zero minutes below",
   grocery: "if the nearest supermarket is at or beyond the zero minutes below",
   agValuation: "if you entered that the land has no ag or wildlife valuation",
+  delivery: "if the nearest designated delivery hospital is at or beyond the zero minutes below",
+  pediatrician: "if the nearest pediatrician is at or beyond the zero minutes below",
+  childcare: "if the nearest child care center or preschool is at or beyond the zero minutes below",
 };
 
 let criteriaDraft = { order: [], on: {} };   // the criteria being edited; saved with the Save button
@@ -1415,6 +1479,7 @@ function syncRangePair(block, moved) {
 }
 
 let usesDraft = {};   // the land uses being edited; saved with the Save button
+let familyDraft = {}; // who is moving with you, being edited; saved with the Save button
 
 // A slider value with its unit: "$100,000", "5%", "30 in/year", "45 min".
 function rangeValueText(pair, value) {
@@ -1433,12 +1498,14 @@ function updateRecommendations() {
     el.textContent = rec ? `Recommended: full marks at ${rangeValueText(pair, rec[0])}, zero at ${rangeValueText(pair, rec[1])}`
       : any ? "No recommendation: set it for your own needs" : "";
   }
-  const suggested = suggestedCriteria(usesDraft);
-  $("c-use-summary").textContent = any
-    ? `For ${usesText(usesDraft)}, these criteria matter most: ${suggested.map((key) => FACTOR_LABELS[key]).join(", ")}.`
-    : "Tick what you plan to do, and the app suggests ranges and criteria for it.";
-  $("c-apply-recommended").disabled = !any;
-  $("c-tick-suggested").disabled = !any;
+  const suggested = suggestedCriteria(usesDraft, familyDraft);
+  const ages = Object.keys(FAMILY_STAGES).filter((key) => familyDraft[key]).map((key) => FAMILY_STAGES[key].label.toLowerCase());
+  const who = [any ? usesText(usesDraft) : "", ages.join(", ")].filter(Boolean).join("; and for ");
+  $("c-use-summary").textContent = who && suggested.length
+    ? `For ${who}, these criteria matter most: ${suggested.map((key) => FACTOR_LABELS[key]).join(", ")}.`
+    : "Tick what you plan to do and who is moving with you, and the app suggests ranges and criteria for it.";
+  $("c-apply-recommended").disabled = !any;   // only land uses recommend slider values
+  $("c-tick-suggested").disabled = suggested.length === 0;
 }
 
 // Moves each slider that has a recommendation to it. Nothing is saved until Save settings.
@@ -1460,6 +1527,7 @@ function numberBoxes(fields) {
 
 function openCriteria() {
   usesDraft = { ...DEFAULT_SETTINGS.uses, ...settings.uses };
+  familyDraft = { ...DEFAULT_SETTINGS.family, ...settings.family };
   criteriaDraft = normalizeCriteria(settings.criteria);
   dealDraft = { ...settings.dealbreakers };
   $("criteria-fields").innerHTML = `
@@ -1467,6 +1535,8 @@ function openCriteria() {
       <div class="stack uses-block">
         <strong>${tipSpan("What will you use the land for?", "Tick one or more. The app then suggests ranges for the sliders below and criteria worth ticking. They are rules of thumb for screening, not standards, and nothing changes until you press a button below and then Save settings.")}</strong>
         <div class="use-list">${Object.entries(LAND_USES).map(([key, use]) => `<label class="check"><input type="checkbox" data-use="${key}"${usesDraft[key] ? " checked" : ""}> ${tipSpan(use.label, use.tip)}</label>`).join("")}</div>
+        <strong>${tipSpan("Who is moving with you?", "Tick every age that applies. Each report then gets a Family needs section with the places that matter at those ages (delivery hospitals, doctors, child care, schools, libraries) and what to know, and the criteria worth ticking are suggested below. Places are only looked up for the ages you tick.")}</strong>
+        <div class="use-list">${Object.entries(FAMILY_STAGES).map(([key, stage]) => `<label class="check"><input type="checkbox" data-family="${key}"${familyDraft[key] ? " checked" : ""}> ${tipSpan(stage.label, stage.tip)}</label>`).join("")}</div>
         <p class="hint" id="c-use-summary" role="status"></p>
         <div class="bar-group"><button class="btn small" type="button" id="c-apply-recommended">Use recommended values</button><button class="btn small" type="button" id="c-tick-suggested">Tick suggested criteria</button></div>
       </div>
@@ -1564,8 +1634,9 @@ function saveCriteria(event) {
   }
   next.criteria = normalizeCriteria(criteriaDraft);
   next.uses = { ...usesDraft };
+  next.family = { ...familyDraft };
   next.dealbreakers = { ...dealDraft };
-  const ranges = [["priceTarget", "priceMax"], ["slopeIdeal", "slopeMax"], ["rainFull", "rainZero"], ["airportFullMin", "airportMaxMin"],
+  const ranges = [["deliveryFullMin", "deliveryMaxMin"], ["pediatricianFullMin", "pediatricianMaxMin"], ["childcareFullMin", "childcareMaxMin"], ["priceTarget", "priceMax"], ["slopeIdeal", "slopeMax"], ["rainFull", "rainZero"], ["airportFullMin", "airportMaxMin"],
     ["internetFullMbps", "internetZeroMbps"], ["groundwaterFullFt", "groundwaterZeroFt"], ["hospitalFullMin", "hospitalMaxMin"], ["groceryFullMin", "groceryMaxMin"]];
   if (ranges.some(([a, b]) => next[a] === next[b])) {
     settingsError("The two ends of each range must be different numbers.", $("c-criteria-list"));
@@ -1780,7 +1851,7 @@ $("criteria-fields").addEventListener("input", (event) => {
 $("criteria-fields").addEventListener("click", (event) => {
   if (event.target.id === "c-apply-recommended") { applyRecommendations(); return; }
   if (event.target.id === "c-tick-suggested") {
-    for (const key of suggestedCriteria(usesDraft)) criteriaDraft.on[key] = true;
+    for (const key of suggestedCriteria(usesDraft, familyDraft)) criteriaDraft.on[key] = true;
     renderCriteriaList();
     return;
   }
@@ -1794,6 +1865,7 @@ $("criteria-fields").addEventListener("click", (event) => {
 $("criteria-fields").addEventListener("change", (event) => {
   if (event.target.dataset.deal) { dealDraft[event.target.dataset.deal] = event.target.checked; return; }
   if (event.target.dataset.use) { usesDraft[event.target.dataset.use] = event.target.checked; updateRecommendations(); return; }
+  if (event.target.dataset.family) { familyDraft[event.target.dataset.family] = event.target.checked; updateRecommendations(); return; }
   if (event.target.dataset.crit) {
     criteriaDraft.on[event.target.dataset.crit] = event.target.checked;
     event.target.closest("li").classList.toggle("active", event.target.checked);

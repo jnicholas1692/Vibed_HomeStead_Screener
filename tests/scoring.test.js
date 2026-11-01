@@ -53,7 +53,7 @@ test("default criteria: the six original ones are ticked, the newer ones are not
   const labels = Object.keys(plain(app.get("FACTOR_LABELS")));
   assert.deepEqual([...c.order].sort(), [...labels].sort());
   assert.deepEqual(c.order.filter((k) => c.on[k]), ["septic", "airport", "price", "internet", "slope", "rain"]);
-  assert.deepEqual(c.order.filter((k) => !c.on[k]), ["flood", "groundwater", "hazards", "hospital", "grocery", "agValuation"]);
+  assert.deepEqual(c.order.filter((k) => !c.on[k]), ["flood", "groundwater", "hazards", "hospital", "grocery", "agValuation", "delivery", "pediatrician", "childcare"]);
   for (const key of labels) assert.ok(key in plain(app.get("DEFAULT_SETTINGS.dealbreakers")), `${key} has a dealbreaker switch`);
 });
 

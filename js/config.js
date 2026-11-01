@@ -2,8 +2,8 @@
 
 // The version shown in the page footer and the day it was released. Change both with every release,
 // along with "version" in package.json and the README version history (tests/version.test.js checks they agree).
-const APP_VERSION = "2.8.0";
-const APP_UPDATED = "2026-10-31";   // year-month-day
+const APP_VERSION = "2.9.0";
+const APP_UPDATED = "2026-11-01";   // year-month-day
 
 // Where sources.js keeps which map server worked last and which are resting (Clear data erases it too).
 const OVERPASS_MEMORY_KEY = "homestead-screener.overpass.v1";
@@ -26,13 +26,16 @@ const DEFAULT_SETTINGS = {
   // and `order` is the order they are shown in (the report summary, the list columns and the compare table).
   // Keys are those of FACTOR_LABELS. The last five are new in v2.3.0 and start unticked.
   criteria: {
-    order: ["septic", "airport", "price", "internet", "slope", "rain", "flood", "groundwater", "hazards", "hospital", "grocery", "agValuation"],
+    order: ["septic", "airport", "price", "internet", "slope", "rain", "flood", "groundwater", "hazards", "hospital", "grocery", "agValuation",
+      "delivery", "pediatrician", "childcare"],
     on: { septic: true, airport: true, price: true, internet: true, slope: true, rain: true,
-      flood: false, groundwater: false, hazards: false, hospital: false, grocery: false, agValuation: false },
+      flood: false, groundwater: false, hazards: false, hospital: false, grocery: false, agValuation: false,
+      delivery: false, pediatrician: false, childcare: false },
   },
   // Which criteria rule a parcel out completely when they hit their worst end. A switch works whether or not the criterion is ticked.
   dealbreakers: { flood: true, septic: false, slope: false, rain: false, airport: true, price: false, internet: false,
-    groundwater: false, hazards: false, hospital: false, grocery: false, agValuation: false },
+    groundwater: false, hazards: false, hospital: false, grocery: false, agValuation: false,
+    delivery: false, pediatrician: false, childcare: false },
   priceTarget: 100000, priceMax: 150000,        // full marks at or below target, zero at or above max
   slopeIdeal: 5, slopeMax: 20,                   // slope in percent
   rainFull: 35, rainZero: 15,                    // average inches of rain per year
@@ -42,8 +45,13 @@ const DEFAULT_SETTINGS = {
   groundwaterFullFt: 50, groundwaterZeroFt: 400, // depth to water at the nearest monitoring well; shallower is cheaper to reach
   hospitalFullMin: 20, hospitalMaxMin: 60,       // drive minutes to the nearest hospital with an emergency room
   groceryFullMin: 15, groceryMaxMin: 45,         // drive minutes to the nearest supermarket
+  deliveryFullMin: 30, deliveryMaxMin: 90,       // drive minutes to the nearest hospital designated to deliver babies (Texas)
+  pediatricianFullMin: 20, pediatricianMaxMin: 60, // drive minutes to the nearest pediatrician
+  childcareFullMin: 15, childcareMaxMin: 45,     // drive minutes to the nearest child care center or preschool
   // What you plan to do on the land (keys of LAND_USES). Ticking uses shows recommended ranges in Settings; nothing changes until you apply them.
   uses: { homestead: false, farm: false, garden: false, livestock: false, residential: false },
+  // Who is moving with you (keys of FAMILY_STAGES). Ticked stages add their places and advice to each report.
+  family: { expecting: false, toddler: false, prek: false, elementary: false, middle: false, high: false },
   censusKey: "",                                 // optional free Census API key, needed for the county tax rate
   // Placeholders for the rough cost estimate. Replace them with real quotes for the area you are searching.
   costs: {
@@ -63,7 +71,7 @@ const DEFAULT_SETTINGS = {
   airportMode: "auto",
   airports: [],
   // The order of the sections in a parcel's report (keys from REPORT_SECTIONS).
-  reportOrder: ["data", "soilDetails", "groundwater", "wetlands", "publicLand", "roads", "places", "internet", "climate", "hazards", "more", "people", "crime", "texas", "cost"],
+  reportOrder: ["data", "soilDetails", "groundwater", "wetlands", "publicLand", "roads", "places", "internet", "climate", "hazards", "more", "people", "crime", "family", "texas", "cost"],
   crimeKey: "",                                  // optional free api.data.gov key, needed for the FBI crime figures
 };
 
@@ -74,6 +82,7 @@ const REPORT_SECTIONS = [
   ["wetlands", "Wetlands"], ["publicLand", "Public and protected land"], ["roads", "Road access"],
   ["places", "Nearby"], ["internet", "Internet"], ["climate", "Climate and solar"],
   ["hazards", "Natural hazards"], ["more", "More local conditions"], ["people", "People and community"], ["crime", "Crime"],
+  ["family", "Family needs"],
   ["texas", "Texas details"], ["cost", "Rough cost"],
 ];
 
@@ -96,7 +105,7 @@ const REPORT_GROUPS = [
   ["land", "Land, soil and water", ["soilDetails", "groundwater", "wetlands", "publicLand"]],
   ["access", "Access and services", ["roads", "places", "internet"]],
   ["climate", "Climate, hazards and area", ["climate", "hazards", "more"]],
-  ["community", "People and safety", ["people", "crime"]],
+  ["community", "People and safety", ["people", "crime", "family"]],
   ["texas", "Texas", ["texas"]],
   ["money", "Cost and loans", ["cost"]],
 ];
@@ -154,6 +163,7 @@ const FACTOR_LABELS = {
   airport: "Airport distance", price: "Price", internet: "Internet",
   flood: "Flood risk", groundwater: "Groundwater depth", hazards: "Natural hazard rating",
   hospital: "Hospital drive", grocery: "Grocery drive", agValuation: "Ag or wildlife valuation",
+  delivery: "Delivery hospital drive", pediatrician: "Pediatrician drive", childcare: "Child care drive",
 };
 
 // Cleans up saved criteria: unknown or repeated keys are dropped, any criterion the saved order is missing
@@ -338,6 +348,7 @@ const DATA_SOURCES = {
   txWells:      { label: "Nearby water wells",       name: "Texas Water Development Board Groundwater Database", url: "https://www.twdb.texas.gov/groundwater/data/index.asp", vintage: "current database; wells are reported by drillers and districts over many decades" },
   txRrc:        { label: "Oil, gas and pipelines",   name: "Railroad Commission of Texas public GIS", url: "https://www.rrc.texas.gov/resource-center/research/gis-viewer/", vintage: "current RRC maps" },
   txEdwards:    { label: "Edwards Aquifer zone",     name: "Edwards Aquifer Recharge Zone boundary (TCEQ, 2005) as published by the City of Austin", url: "https://www.tceq.texas.gov/gis/metadata/edwards_met.html", vintage: "TCEQ boundary adopted 2005" },
+  txMaternal:   { label: "Delivery and newborn care hospitals", name: "Texas Department of State Health Services, maternal and neonatal designated hospitals (EMS/Trauma Systems map)", url: "https://www.dshs.texas.gov/dshs-ems-trauma-systems/ems-trauma-systems-interactive-map", vintage: "the designations on the map's latest layer" },
   femaDisasters:{ label: "Disaster declarations",    name: "OpenFEMA Disaster Declarations Summaries", url: "https://www.fema.gov/openfema-data-page/disaster-declarations-summaries-v2", vintage: "declarations in the last 10 years" },
   costs:        { label: "Rough cost",               name: "Placeholder rates and prices from your Criteria",        url: null,                                                       vintage: "your settings; the county tax rate comes from the Census ACS when known" },
 };
@@ -456,6 +467,20 @@ const GLOSSARY = {
   "Year built": { source: "txParcel", text: "The year the main building was built, from the appraisal district. Blank for land with no building or when the district does not report it." },
   "Appraised improvement value": { source: "txParcel", text: "The appraisal district's value for buildings and other improvements, for the tax year shown. Part of the total value." },
   "Estimated yearly tax before exemptions": { source: "txParcel", text: "The appraised total value times a tax rate: the county's typical rate from the Census when known (and turned on in Settings), otherwise your own rate. It ignores exemptions, ag or wildlife valuation and caps, so a real bill can be much lower. The county tax office has the real figure." },
+  // ---- family needs ----
+  "Delivery hospital": { source: "txMaternal", text: "The nearest hospitals the Texas health department has designated for maternal care, with their level: I basic care, II specialty care, III subspecialty care, IV comprehensive care for the highest-risk pregnancies. Designation means the hospital delivers babies and meets the state's standards for that level." },
+  "Newborn care (NICU)": { source: "txMaternal", text: "The nearest hospitals designated for newborn care, with their level: I well-baby nursery, II special care nursery, III neonatal intensive care, IV the most advanced newborn intensive care. Sick or very early babies are moved to a higher level if needed." },
+  "OB-GYN": { source: "places", text: "The nearest obstetrician or gynecologist in OpenStreetMap. Few doctors' offices are mapped, so 'none found' is common even where there are several; ask the delivery hospital for names." },
+  "Pediatrician": { source: "places", text: "The nearest pediatric office in OpenStreetMap. Many are missing from the map, and family doctors also see children." },
+  "Pharmacy": { source: "places", text: "The nearest pharmacy in OpenStreetMap." },
+  "Child care": { source: "places", text: "The nearest child care center in OpenStreetMap. Home-based child care is rarely mapped; the state's licensed child care search lists every provider." },
+  "Preschool or pre-K": { source: "places", text: "The nearest preschool or pre-K program in OpenStreetMap. Public pre-K is often inside an elementary school, so check with the school district too." },
+  "Library": { source: "places", text: "The nearest public library in OpenStreetMap, useful for story times, homework help and internet." },
+  "Playground": { source: "places", text: "The nearest playground in OpenStreetMap." },
+  "Elementary school": { source: "places", text: "The nearest elementary school in OpenStreetMap, public or private. It may not be the school assigned to the address; the school district decides that." },
+  "Middle school": { source: "places", text: "The nearest middle school in OpenStreetMap, public or private. The school district decides which campus serves the address." },
+  "High school": { source: "places", text: "The nearest high school in OpenStreetMap, public or private. The school district decides which campus serves the address." },
+  "Hospital (emergency)": { source: "places", text: "The nearest hospital in OpenStreetMap not marked as having no emergency room. Not every hospital delivers babies or has a full emergency department, so call to confirm." },
   "Parcel outline": { source: "txParcel", text: "The parcel's boundary from the appraisal district's map, drawn on the map as a thin line. Appraisal maps are for tax, not a survey, so lines can be off by many feet." },
   // ---- rough cost (every number comes from the placeholder rates in Settings > Costs and loans) ----
   "Loan payment": { text: "Monthly principal and interest on a loan for the land itself, using your down payment, rate and years from Settings. 0 years means the land is treated as paid in cash." },
@@ -485,6 +510,9 @@ const FACTOR_TIPS = {
   "Natural hazard rating": () => "FEMA's overall National Risk Index rating for the census tract. Very Low scores 100, Relatively Low 75, Relatively Moderate 50, Relatively High 25 and Very High 0.",
   "Hospital drive": (s) => `Drive time to the nearest hospital that is not marked as having no emergency room, from OpenStreetMap. Scores 100 at ${s.hospitalFullMin} minutes or less and 0 at ${s.hospitalMaxMin} minutes or more.`,
   "Ag or wildlife valuation": () => "Whether the land is taxed on its farm or wildlife use (in Texas, open-space or \"1-d-1\" valuation) instead of its market value, which can cut the tax bill a great deal. Yes scores 100 and a confirmed no scores 0. It comes from what you tick on the parcel (from the listing or the appraisal district), or, when you have not said, from a Texas appraisal record in land category D1. The valuation only continues if the land stays in qualifying use, and changing the use can bring back taxes for earlier years.",
+  "Delivery hospital drive": (s) => `Drive time to the nearest hospital the Texas health department has designated for maternal care (labor and delivery). Scores 100 at ${s.deliveryFullMin} minutes or less and 0 at ${s.deliveryMaxMin} minutes or more. Texas parcels only: other states have no list the app can read, so this criterion has no data there.`,
+  "Pediatrician drive": (s) => `Drive time to the nearest pediatrician in OpenStreetMap. Scores 100 at ${s.pediatricianFullMin} minutes or less and 0 at ${s.pediatricianMaxMin} minutes or more. Many offices are missing from the map, so a family practice closer by may also see children.`,
+  "Child care drive": (s) => `Drive time to the nearest child care center or preschool in OpenStreetMap. Scores 100 at ${s.childcareFullMin} minutes or less and 0 at ${s.childcareMaxMin} minutes or more. Home-based child care is rarely on the map; the state's licensed child care search lists it.`,
   "Grocery drive": (s) => `Drive time to the nearest supermarket, from OpenStreetMap. Scores 100 at ${s.groceryFullMin} minutes or less and 0 at ${s.groceryMaxMin} minutes or more. Rural stores are often missing from the map, so check.`,
 };
 
@@ -502,6 +530,9 @@ const RANGE_PAIRS = [
   { key: "groundwater", title: "Groundwater depth", unit: "ft", good: "groundwaterFullFt", bad: "groundwaterZeroFt", better: "lower", min: 0, max: 1000, step: 10 },
   { key: "hospital", title: "Hospital drive", unit: "min", good: "hospitalFullMin", bad: "hospitalMaxMin", better: "lower", min: 0, max: 180, step: 5 },
   { key: "grocery", title: "Grocery drive", unit: "min", good: "groceryFullMin", bad: "groceryMaxMin", better: "lower", min: 0, max: 120, step: 5 },
+  { key: "delivery", title: "Delivery hospital drive", unit: "min", good: "deliveryFullMin", bad: "deliveryMaxMin", better: "lower", min: 0, max: 180, step: 5 },
+  { key: "pediatrician", title: "Pediatrician drive", unit: "min", good: "pediatricianFullMin", bad: "pediatricianMaxMin", better: "lower", min: 0, max: 120, step: 5 },
+  { key: "childcare", title: "Child care drive", unit: "min", good: "childcareFullMin", bad: "childcareMaxMin", better: "lower", min: 0, max: 120, step: 5 },
 ];
 
 /* ---- What you plan to do on the land, and the ranges that suit it ---- */
@@ -510,6 +541,90 @@ const RANGE_PAIRS = [
 // and the criteria worth ticking for it. These are rules of thumb for screening, not standards: a soil scientist,
 // the county extension office and local farmers know the area far better.
 // Price and airport drive are left out on purpose: they depend on your budget and travel, not on the use.
+/* ---- Who is moving with you, and what each age needs ---- */
+
+// Each stage: a label and hover explanation, the kinds of nearby places to look up for it (keys of PLACE_KINDS in
+// sources.js), the criteria worth ticking for it, and plain advice shown in the report. `texas` advice is added for
+// Texas parcels. `maternity` asks the Texas health department's list of hospitals designated to deliver babies.
+const FAMILY_STAGES = {
+  expecting: {
+    label: "Expecting or a newborn",
+    tip: "Pregnant, planning a pregnancy, or a baby under one. Adds hospitals that deliver babies and their newborn care level (Texas), OB-GYNs, pediatricians and pharmacies.",
+    places: ["obgyn", "pediatrician", "pharmacy", "hospital"], maternity: true,
+    criteria: ["delivery", "pediatrician", "hospital"],
+    advice: [
+      "Not every hospital delivers babies, and many rural hospitals have closed their labor and delivery units. Time the drive to the nearest one that does, at night and in bad weather.",
+      "Hospitals are designated by level: maternal care from Level I (basic) to Level IV (comprehensive, for the highest-risk pregnancies), and newborn care from Level I (well-baby nursery) to Level IV (the most advanced newborn intensive care). Ask where your hospital sends high-risk mothers and babies.",
+      "Line up an OB-GYN or midwife for prenatal visits, which come every few weeks and then weekly near the due date, and a pediatrician before the birth: the first newborn checkup is usually 3 to 5 days after birth.",
+    ],
+    texas: "The Texas Department of State Health Services publishes the designated hospitals and their levels; the list in this report comes from its map.",
+  },
+  toddler: {
+    label: "Baby or toddler (1 to 3)",
+    tip: "Adds pediatricians, child care, libraries and playgrounds.",
+    places: ["pediatrician", "childcare", "library", "playground", "pharmacy"],
+    criteria: ["pediatrician", "childcare"],
+    advice: [
+      "Well-child checkups and vaccines come often in the first three years (about a dozen visits), so the drive to a pediatrician adds up.",
+      "Child care near rural land fills up early. Home-based providers are often not on the map; check the state's licensed child care search and ask about waiting lists.",
+    ],
+    texas: "Texas Health and Human Services lists every licensed and registered child care provider, with inspection results, in its child care search.",
+  },
+  prek: {
+    label: "Pre-K or kindergarten (4 to 5)",
+    tip: "Adds preschools, child care, elementary schools, pediatricians and libraries.",
+    places: ["preschool", "childcare", "elementary", "pediatrician", "library"],
+    criteria: ["childcare", "pediatrician"],
+    advice: [
+      "The nearest school is not always the one assigned to the address. Ask the school district which campus serves it, whether there is a bus, and how long the ride is.",
+    ],
+    texas: "Texas public schools offer free pre-K to children who are 4 by September 1 and qualify, for example English learners, children from low-income families, children of active-duty military, or children who are homeless or have been in foster care; some districts also take 3-year-olds or offer tuition pre-K. Kindergarten is open to children who are 5 by September 1 (it is optional).",
+  },
+  elementary: {
+    label: "Elementary school (6 to 10)",
+    tip: "Adds elementary schools, libraries, playgrounds and pediatricians.",
+    places: ["elementary", "library", "playground", "pediatrician"],
+    criteria: ["pediatrician"],
+    advice: [
+      "Attendance zones decide the school, not distance. Ask the district which campus serves the address, and about bus routes: rural rides can be long, and some roads have no bus.",
+    ],
+    texas: "The Texas Education Agency's school report cards show each campus's and district's rating.",
+  },
+  middle: {
+    label: "Middle school (11 to 13)",
+    tip: "Adds middle schools and libraries.",
+    places: ["middle", "library"],
+    criteria: [],
+    advice: [
+      "Sports, music and other after-school activities mean more trips to town; count the drive to the middle school, not just the bus.",
+    ],
+    texas: "The Texas Education Agency's school report cards show each campus's and district's rating.",
+  },
+  high: {
+    label: "High school (14 to 18)",
+    tip: "Adds high schools and libraries.",
+    places: ["high", "library"],
+    criteria: [],
+    advice: [
+      "Ask about the high school's courses (dual credit, career and technical programs), and plan for practice and game drives; rural teens often drive themselves as soon as they can.",
+    ],
+    texas: "The Texas Education Agency's school report cards show each campus's and district's rating.",
+  },
+};
+
+// Official Texas pages the family advice links to (each checked on 2026-11-01).
+const TX_CHILDCARE_SEARCH_URL = "https://childcare.hhs.texas.gov/Public/childcaresearch";
+const TX_SCHOOL_REPORT_CARDS_URL = "https://txschools.gov/";
+
+// The Texas Department of State Health Services (DSHS) EMS/Trauma Systems map. Its layers of maternal and neonatal
+// (newborn) designated hospitals are replaced every few months under new names ("Maternal Designated Hospitals _ May 2026"),
+// so the app looks up the current ones from the map itself, and falls back to the last known addresses.
+const TX_DSHS_MAP_ITEM = "76b63bd52aa14ebd8f1d27d84dcf1efd";
+const TX_DSHS_FALLBACK_LAYERS = {
+  maternal: "https://services3.arcgis.com/vljlarU2635mITsl/arcgis/rest/services/Maternal_Designated_Hospitals___May_2026/FeatureServer/0",
+  neonatal: "https://services3.arcgis.com/vljlarU2635mITsl/arcgis/rest/services/Neonatal_Designated_Hospitals___May_2026/FeatureServer/1",
+};
+
 const LAND_USES = {
   homestead: {
     label: "Homestead",
@@ -562,6 +677,12 @@ const SETTING_TIPS = {
   hospitalFullMin: "Drive time (minutes) to the nearest emergency hospital at or below which Hospital drive scores 100.",
   hospitalMaxMin: "Drive time (minutes) to the nearest emergency hospital at which Hospital drive scores 0. It is also the dealbreaker line if that switch is on.",
   groceryFullMin: "Drive time (minutes) to the nearest supermarket at or below which Grocery drive scores 100.",
+  deliveryFullMin: "Drive time (minutes) to the nearest designated delivery hospital at or below which Delivery hospital drive scores 100.",
+  deliveryMaxMin: "Drive time (minutes) to the nearest designated delivery hospital at which the criterion scores 0. It is also the dealbreaker line if that switch is on.",
+  pediatricianFullMin: "Drive time (minutes) to the nearest pediatrician at or below which Pediatrician drive scores 100.",
+  pediatricianMaxMin: "Drive time (minutes) to the nearest pediatrician at which the criterion scores 0. It is also the dealbreaker line if that switch is on.",
+  childcareFullMin: "Drive time (minutes) to the nearest child care center or preschool at or below which Child care drive scores 100.",
+  childcareMaxMin: "Drive time (minutes) to the nearest child care center or preschool at which the criterion scores 0. It is also the dealbreaker line if that switch is on.",
   groceryMaxMin: "Drive time (minutes) to the nearest supermarket at which Grocery drive scores 0. It is also the dealbreaker line if that switch is on.",
   "costs.downPayment": "Cash you plan to put down, in dollars. It is used for the land loan and both home loans, and never counts for more than the price.",
   "costs.ratePct": "Yearly interest rate for a loan on the land itself. Land loans usually cost more than home loans, so ask local lenders and replace this guess.",
@@ -651,6 +772,7 @@ const SECTION_TIPS = {
   soilDetails: "Soil texture, wetness, depth to rock, shrink-swell and how suitable the soil is for building.",
   hazards: "FEMA's natural hazard risk ratings for the census tract.",
   people: "Population, age, income, poverty, education, working from home and broadband, for the neighborhood and the whole county.",
+  family: "For the family members you ticked in Settings: delivery and newborn care, doctors, child care, schools and libraries nearby, with what matters at each age.",
   crime: "Violent and property crime reported by the county sheriff to the FBI, with Texas and US rates to compare. Needs a free key in Settings.",
   more: "Drought, weather alerts, wind and humidity, and nearby regulated facilities.",
   texas: "Texas-only details: appraisal parcel, groundwater district, school district, nearby wells, oil and gas, and the Edwards Aquifer zone. Hidden for parcels outside Texas.",

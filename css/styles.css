@@ -275,6 +275,11 @@
 .crit-list .order-name { flex: 1 1 140px; font-weight: 600; }
 .summary-table td:nth-child(2) { overflow-wrap: anywhere; }
 
+/* Report: Family needs */
+.tight { margin: 4px 0 0; padding-left: 18px; }
+.tight li { margin: 2px 0; }
+.family-stage { margin-top: 10px; }
+
 /* Add window: tax exemptions */
 .exemptions { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .exemptions legend { padding: 0 4px; color: var(--muted); font-size: 0.85rem; }

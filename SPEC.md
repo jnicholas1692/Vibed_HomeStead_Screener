@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v2.8.0.
+> Last updated for v2.9.0.
 
 ## 1. Problem
 
@@ -108,6 +108,11 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R71 | Choose list columns | A Columns menu above the list has a tick box for each ticked criterion except price and flood (which always have columns); ticking adds a column and unticking removes it, in your criteria order; until you change it the first three show; the choice is saved in the browser; the menu stays open while you change it and closes on a click elsewhere | `feature/list-columns-sort-filter` |
 | R72 | Sort by any criterion | The Sort menu has "low to high" and "high to low" for every ticked criterion (ratings like septic say "score"), and each criterion column heading (and Price) has an arrow button that sorts low to high, then high to low; values are in the criterion's unit (dollars, percent, inches a year, minutes, Mbps, feet) or its 0 to 100 score for ratings; parcels with no data go last either way | `feature/list-columns-sort-filter` |
 | R73 | Filter by a value | A Filter row picks a criterion, "at most" or "at least", and a value in that criterion's unit (shown in the box); parcels outside it are hidden, parcels with no data for it are always kept; a note says what the filter does and how many parcels are hidden; Clear filter removes it; the filter is saved in the browser | `feature/list-columns-sort-filter` |
+| R74 | Who is moving with you | Settings > Scoring has tick boxes for six family ages (expecting or a newborn, baby or toddler 1-3, pre-K or kindergarten 4-5, elementary 6-10, middle 11-13, high 14-18), each with a hover explanation, saved in the browser; the suggested criteria include each age's; Tick suggested criteria works with ages alone | `feature/family-needs` |
+| R75 | Family needs section | For the ages ticked, a Family needs section (People and safety category) lists the nearest OB-GYN, pediatrician, pharmacy, child care, preschool, library, playground and school as each age needs, with drive time; each age's advice (prenatal and newborn visits, delivery and NICU levels, child care waiting lists, attendance zones and buses, Texas pre-K for qualifying children who are 4 by September 1 and kindergarten at 5 by September 1) and links to the Texas child care search and TEA school report cards; no section when no age is ticked | `feature/family-needs` |
+| R76 | Texas-designated delivery hospitals | When Expecting is ticked, Texas parcels get the three nearest hospitals designated for maternal care and for neonatal care within 150 miles, with level, city and distance (routed drive time to the nearest), from the DSHS EMS/Trauma Systems map; the current layers are found from the map itself, with the last known layers as a fallback; outside Texas the report says no list exists and to call the hospitals | `feature/family-needs` |
+| R77 | Family places only when needed | The family kinds of places and the DSHS layers are asked only for the ages ticked; ticking an age later makes only those missing, so Refresh data asks just for them; doctors are matched by specialty tag only (no name patterns, which time out) | `feature/family-needs` |
+| R78 | Family criteria | Three optional criteria with sliders: delivery hospital drive (30 to 90 min, Texas only), pediatrician drive (20 to 60 min) and child care drive (the nearer of child care or a preschool, 15 to 45 min), each with a dealbreaker switch | `feature/family-needs` |
 
 ## 5. Scoring rules
 
@@ -153,6 +158,7 @@ Default: septic, airport, price, internet, slope and rain are ticked (the six fa
 | Wind and humidity | NASA POWER annual climatology | Grid cells about 50 km wide |
 | Regulated facilities | EPA ECHO | Counts facilities within 2 miles; not a pollution reading |
 | Disaster declarations | OpenFEMA Disaster Declarations Summaries (checked from the live site: answers browser requests) | County level; a declaration depends on damage, not just weather |
+| Delivery and newborn care hospitals | Texas DSHS maternal and neonatal designated hospitals layers (EMS/Trauma Systems map, layers dated May 2026), checked from the live site on 2026-11-01 | Texas only; designations change, and the layer names change with them; OpenStreetMap had no hospital tagged for labor and delivery within 80 km of the test spot |
 | People and community | Census Reporter (ACS 5-year: tables B01003, B01002, B09001, B19013, B17001, B15003, B08301, B28002, B25077), checked from the live site on 2026-10-31 (ACS 2024 5-year) | Survey estimates with wide margins of error in small rural tracts; a third-party republisher of Census data |
 | Crime | FBI Crime Data Explorer (agency list and monthly summarized offenses), checked from the live site on 2026-10-31 | Needs a free key; the sheriff covers the county outside city limits; small populations make rates jumpy; on 2026-10-31 the service failed for 2025 and answered for 2024 |
 
@@ -179,8 +185,8 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 
 ## 10. Testing
 
-- 188 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
-- 247 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
+- 195 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
+- 265 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
 - Live checks against real services are manual (see the tutorial).
 
 ## 11. What I would do next
