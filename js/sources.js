@@ -643,6 +643,14 @@ function schoolLevels(tags) {
 
 const isSchool = (tags, level) => tags.amenity === "school" && schoolLevels(tags).has(level);
 
+// A children's doctor, not a children's dentist. The specialty tag can list several, split by ";"
+// (like "paediatrics;family_medicine"); one of them must be pediatrics without "dent" or "orthodont" in it.
+function isPediatrician(tags) {
+  if (tags.healthcare === "dentist" || tags.amenity === "dentist") return false;
+  return (tags["healthcare:speciality"] || "").split(";")
+    .some((one) => /p(a)?ediatric/i.test(one) && !/dent|orthodont/i.test(one));
+}
+
 const PLACE_KINDS = [
   { key: "grocery", label: "Grocery store",
     overpass: ['["shop"="supermarket"]'],
@@ -691,8 +699,9 @@ const PLACE_KINDS = [
     test: (tags) => /gynaecolog|obstetric/i.test(tags["healthcare:speciality"] || "") || /^(midwife|birthing_cent(re|er))$/.test(tags.healthcare || "") },
   { key: "pediatrician", label: "Pediatrician", family: true,
     // "p(a)?ediatric" matches both the British spelling OpenStreetMap asks for and the American one people also use.
-    overpass: ['["healthcare:speciality"~"p(a)?ediatric"]'],
-    test: (tags) => /p(a)?ediatric/i.test(tags["healthcare:speciality"] || "") },
+    // Children's dentists are tagged "paediatric_dentistry", so dentists are left out here and in `test` below.
+    overpass: ['["healthcare:speciality"~"p(a)?ediatric"]["healthcare"!="dentist"]["amenity"!="dentist"]'],
+    test: isPediatrician },
   { key: "pharmacy", label: "Pharmacy", family: true,
     overpass: ['["amenity"="pharmacy"]'],
     test: (tags) => tags.amenity === "pharmacy" },

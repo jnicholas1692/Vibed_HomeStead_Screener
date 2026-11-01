@@ -356,7 +356,7 @@ def test_page_and_footer(b):
     link = page.locator(".repo-link a")
     check("header links to the GitHub repository",
           link.get_attribute("href") == "https://github.com/jnicholas1692/Vibed_HomeStead_Screener")
-    check("empty list explains how to start", "No parcels yet" in page.text_content("#list"))
+    check("empty list explains how to start", "No addresses yet" in page.text_content("#list"))
 
 
 def test_static_hover_help(b):
@@ -792,7 +792,7 @@ def test_add_errors(b):
     page.wait_for_function("() => document.getElementById('add-error').textContent.includes('No match')")
     check("an address with no match says so", "No match for that address" in page.text_content("#add-error"))
     close_dialog(page, "dlg-add")
-    check("nothing was added by the mistakes", "No parcels yet" in page.text_content("#list"))
+    check("nothing was added by the mistakes", "No addresses yet" in page.text_content("#list"))
 
 
 def test_address_suggestions(b):
@@ -1024,12 +1024,27 @@ def test_list_columns_sort_filter(b):
 
 
 def test_clear_data(b):
-    section("Clear data")
+    section("Clear addresses and Clear data")
     page = b.page
+    # Clear addresses: the addresses go, the keys and other settings stay.
+    page.evaluate("() => { settings.censusKey = 'census-test'; settings.crimeKey = 'crime-test'; writeStored(SETTINGS_KEY, settings); }")
+    settings_before = page.evaluate("() => localStorage.getItem(SETTINGS_KEY)")
+    page.click("#btn-clear-addresses")
+    check("Clear addresses asks again first", page.locator("#list tr.row").count() == 3)
+    page.click("#btn-clear-addresses")
+    check("the second click removes every address", "No addresses yet" in page.text_content("#list"))
+    check("Clear addresses keeps the API keys and settings", page.evaluate("() => localStorage.getItem(SETTINGS_KEY)") == settings_before
+          and "census-test" in settings_before and "crime-test" in settings_before)
+    check("Clear addresses leaves no saved addresses", page.evaluate("() => JSON.parse(localStorage.getItem(PARCELS_KEY))") == [])
+    # Put three addresses back for Clear data.
+    page.click("#btn-add")
+    page.click("#btn-demo")
+    page.wait_for_function("() => document.querySelectorAll('#list tr.row').length === 3")
+
     page.click("#btn-clear")
     check("Clear data asks again first", page.locator("#list tr.row").count() == 3)
     page.click("#btn-clear")
-    check("the second click empties the list", "No parcels yet" in page.text_content("#list"))
+    check("the second click empties the list", "No addresses yet" in page.text_content("#list"))
     leftover = page.evaluate("() => Object.keys(localStorage).filter((k) => k.startsWith('homestead-screener.parcels'))")
     check("the saved parcels are erased", leftover == [] or stored_text(page).count("Blanco test") == 0, str(leftover))
 
