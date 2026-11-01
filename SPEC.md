@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v2.10.0.
+> Last updated for v2.11.0.
 
 ## 1. Problem
 
@@ -116,6 +116,8 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R79 | Pediatricians, not dentists | The nearest pediatrician leaves out children's dentists and orthodontists: places tagged as dentists, and specialties like paediatric_dentistry, both in the Overpass query (by tag only) and when sorting the reply; a pediatrician saved before v2.10.0 whose name sounds like a dentist (dent, orthodon, teeth, tooth, smile) is forgotten when the page loads or a file is imported, so Refresh data looks it up again | `feature/pediatricians-addresses-clear` |
 | R80 | Address wording | The main labels say address instead of parcel: Add address, Add an address and Edit address, Ranked addresses, the Address list column, Compare addresses, Load 3 demo addresses, and the empty-list and Pick hints; report text and saved data keep the old word | `feature/pediatricians-addresses-clear` |
 | R81 | Clear addresses | A Clear addresses button removes every saved address after a second click to confirm (the question goes away after 5 seconds) and keeps the settings, including the Census and api.data.gov keys; Clear data still erases everything | `feature/pediatricians-addresses-clear` |
+| R82 | Jump to a report section | Under the report's buttons (pinned at the top), a row of buttons names each section shown, in report order, plus Data sources and Your notes, each with a hover explanation; a click scrolls the section to just under the pinned buttons and opens its category if it was closed; the row is not printed; under 900 pixels wide it is one line that scrolls sideways inside itself, never widening the page | `feature/report-jump-and-crime` |
+| R83 | Crime failures explained | When the crime figures fail, the Crime section says why in plain words with the error (key's hourly limit for HTTP 429, a problem on the FBI's side for 5xx, too slow, or no answer); the year before is also tried when the FBI's service does not answer at all (time-out or a blocked error page), not only on a 5xx error; 4xx errors are not retried | `feature/report-jump-and-crime` |
 
 ## 5. Scoring rules
 
@@ -188,8 +190,8 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 
 ## 10. Testing
 
-- 198 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
-- 269 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
+- 200 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
+- 274 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
 - Live checks against real services are manual (see the tutorial).
 
 ## 11. What I would do next

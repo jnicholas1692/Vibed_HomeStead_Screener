@@ -1448,13 +1448,15 @@ async function lookupCrime(stateAbbr, county, key) {
   if (!sheriff) return { agency: null };
   const ask = (code, year) => getJSON(`${FBI_CDE_URL}summarized/agency/${sheriff.ori}/${code}?from=01-${year}&to=12-${year}&API_KEY=${encodeURIComponent(key)}`, {}, 40000);
   // The last full calendar year first. On 2026-10-31 the FBI's service failed (HTTP 503) for all of 2025 but answered
-  // for 2024, so when a year fails on the FBI's side (a 5xx error), the year before is tried once.
+  // for 2024, so when a year fails on the FBI's side, the year before is tried once. That covers a 5xx error and also
+  // no answer at all (a time-out, or an error page without the header that lets a web page read it, which the browser
+  // reports only as "Failed to fetch"). A 4xx error, like 429 "too many requests", is our side and is not retried.
   let year = new Date().getFullYear() - 1;
   let violent, property;
   try {
     [violent, property] = await Promise.all([ask("V", year), ask("P", year)]);
   } catch (error) {
-    if (!/^HTTP 5\d\d$/.test(error.message)) throw error;
+    if (/^HTTP 4\d\d$/.test(error.message) || error.notJson) throw error;
     year -= 1;
     [violent, property] = await Promise.all([ask("V", year), ask("P", year)]);
   }
@@ -1464,6 +1466,20 @@ async function lookupCrime(stateAbbr, county, key) {
     violent: summarizeOffenses(violent, sheriff.agency_name, stateName),
     property: summarizeOffenses(property, sheriff.agency_name, stateName),
   };
+}
+
+// Why the FBI's crime figures failed, in plain words, from the error message (like "HTTP 503" or "Timed out").
+// Returns "" when no reason was kept (parcels looked up before v2.11.0).
+function crimeFailureText(reason) {
+  if (!reason) return "";
+  const status = (/^HTTP (\d+)$/.exec(reason) || [])[1];   // the number in "HTTP 503", if that is the message
+  let why;
+  if (status === "429") why = "your key's hourly limit of requests was used up, so wait an hour";
+  else if (status && status.startsWith("5")) why = "the FBI's service had a problem on its side";
+  else if (reason === "Timed out") why = "the FBI's service took too long to answer";
+  else if (/failed to fetch|networkerror|load failed/i.test(reason)) why = "the FBI's service did not answer (it may be down, or this network blocks it)";
+  else why = "the FBI's service sent an unexpected reply";
+  return `${why} (${reason})`;
 }
 
 // US Drought Monitor: the drought category (D0 to D4) of the current weekly map at the spot, if any. Where there is no drought
@@ -1587,10 +1603,11 @@ async function lookupMore(parcel, crimeKey, only = null) {
   };
   const names = Object.keys(jobs).filter((name) => !only || only.includes(name));
   const settled = await Promise.allSettled(names.map((n) => jobs[n]()));
-  const out = { failed: [] };
+  // `reasons` keeps why each piece failed (like "HTTP 503" or "Timed out"), so the report can say so.
+  const out = { failed: [], reasons: {} };
   settled.forEach((r, i) => {
     if (r.status === "fulfilled") out[names[i]] = r.value;
-    else { out[names[i]] = null; out.failed.push(names[i]); }
+    else { out[names[i]] = null; out.failed.push(names[i]); out.reasons[names[i]] = String((r.reason && r.reason.message) || r.reason); }
   });
   return out;
 }
@@ -1971,7 +1988,8 @@ async function lookupAll(parcel, onProgress, mode = "all", plan = planLookups(pa
       const fresh = await lookupMore(parcel, settings.crimeKey, plan.more);
       parcel.site.more = mergePieces(parcel.site.more, fresh);
       // Keep what came back (the report says which pieces could not load), but count a total failure as a failed lookup.
-      const allFailed = fresh.failed.length > 0 && fresh.failed.length === Object.keys(fresh).length - 1;
+      const asked = Object.keys(fresh).filter((name) => name !== "failed" && name !== "reasons");
+      const allFailed = fresh.failed.length > 0 && fresh.failed.length === asked.length;
       if (allFailed) fail("More conditions", "no service answered");
       else onProgress("More conditions", "ok");
     } catch (error) {
