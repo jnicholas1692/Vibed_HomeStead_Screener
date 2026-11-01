@@ -212,7 +212,7 @@ function renderList(items) {
     return;
   }
   if (items.length === 0) {
-    $("list").innerHTML = `<div class="empty"><strong>No parcels yet.</strong><br>Add one with a street address or by picking its spot on the map. You can also load three demo parcels to see how it works.</div>`;
+    $("list").innerHTML = `<div class="empty"><strong>No addresses yet.</strong><br>Add one with a street address or by picking its spot on the map. You can also load three demo addresses to see how it works.</div>`;
     return;
   }
   updateCompareButton();
@@ -233,7 +233,7 @@ function renderList(items) {
     </tr>`;
   }).join("");
   $("list").innerHTML = `<div class="table-scroll"><table>
-    <thead><tr><th class="col-pick">${tipSpan("Pick", "Tick two or three parcels, then press Compare to see them side by side.")}</th><th class="num col-n">${tipSpan("#", "Rank in the list, by the sort you chose.")}</th><th>${tipSpan("Parcel", "Your name for the parcel, with its county and size. Click a row to open its full report.")}</th><th class="num">${tipSpan("Price", "The asking price you entered.")}${sortButton("price")}</th><th>${tipSpan("Score", "0 to 100: the plain average of the criteria you ticked in Settings, each counting the same. A criterion with no data for the parcel is skipped. Open the report to see each one.")}</th><th>${tipSpan("USDA", "Is the spot in an area where USDA Rural Development guaranteed home loans are available? Yes means it is outside USDA's mapped ineligible areas.")}</th><th>${tipSpan("Flood zone", "Is the spot in a high-risk FEMA flood zone (zones starting with A or V)? Yes means high risk.")}</th>${columns.map((key, n) => `<th class="${n > 0 ? "col-air" : ""}">${helpLabel(FACTOR_LABELS[key])}${sortButton(key)}</th>`).join("")}<th class="col-del" aria-label="Delete"></th></tr></thead>
+    <thead><tr><th class="col-pick">${tipSpan("Pick", "Tick two or three addresses, then press Compare to see them side by side.")}</th><th class="num col-n">${tipSpan("#", "Rank in the list, by the sort you chose.")}</th><th>${tipSpan("Address", "Your name for the address, with its county and size. Click a row to open its full report.")}</th><th class="num">${tipSpan("Price", "The asking price you entered.")}${sortButton("price")}</th><th>${tipSpan("Score", "0 to 100: the plain average of the criteria you ticked in Settings, each counting the same. A criterion with no data for the parcel is skipped. Open the report to see each one.")}</th><th>${tipSpan("USDA", "Is the spot in an area where USDA Rural Development guaranteed home loans are available? Yes means it is outside USDA's mapped ineligible areas.")}</th><th>${tipSpan("Flood zone", "Is the spot in a high-risk FEMA flood zone (zones starting with A or V)? Yes means high risk.")}</th>${columns.map((key, n) => `<th class="${n > 0 ? "col-air" : ""}">${helpLabel(FACTOR_LABELS[key])}${sortButton(key)}</th>`).join("")}<th class="col-del" aria-label="Delete"></th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
 }
 
@@ -1091,7 +1091,7 @@ let editingId = null;   // the parcel being edited, or null when the window is a
 
 // Switches the Add window between "add" and "edit" wording.
 function setAddFormMode(editing) {
-  $("add-title").textContent = editing ? "Edit parcel" : "Add a parcel";
+  $("add-title").textContent = editing ? "Edit address" : "Add an address";
   $("btn-save").textContent = editing ? "Save changes" : "Add and look up data";
   $("btn-demo").hidden = editing;
   $("edit-hint").hidden = !editing;
@@ -1240,6 +1240,7 @@ async function importData(file) {
       parcels.push({ status: "new", notes: "", site: {}, errors: [], ...p, id: newId() });
       added += 1;
     }
+    forgetDentistPediatricians(parcels);   // a file exported before v2.10.0 can hold a dentist as the pediatrician
     saveParcels();
     renderAll();
     alertNotice(`Imported ${added} parcel${added === 1 ? "" : "s"}.`);
@@ -1679,7 +1680,7 @@ document.addEventListener("change", (event) => {
   } else if (!box.checked) {
     compareIds = compareIds.filter((x) => x !== id);
   }
-  $("compare-hint").textContent = 'Tick two or three parcels in the "Pick" column to compare them side by side.';
+  $("compare-hint").textContent = 'Tick two or three addresses in the "Pick" column to compare them side by side.';
   updateCompareButton();
 });
 $("btn-compare").addEventListener("click", showComparison);
@@ -1893,24 +1894,37 @@ $("btn-reset-criteria").addEventListener("click", () => {
   $("dlg-criteria").close();
   renderAll();
 });
-// Clear data erases everything saved in this browser. Like Delete it takes two clicks, and the question goes away by itself.
-let clearTimer = null;
-function resetClearButton() {
-  clearTimeout(clearTimer);
-  const button = $("btn-clear");
-  button.textContent = "Clear data";
-  button.classList.remove("armed");
+// Clear addresses and Clear data each take two clicks, like Delete: the first click asks, the second does it,
+// and the question goes away by itself after 5 seconds.
+function twoClickButton(id, question, onConfirm) {
+  const button = $(id);
+  const label = button.textContent;
+  let timer = null;
+  const reset = () => { clearTimeout(timer); button.textContent = label; button.classList.remove("armed"); };
+  button.addEventListener("click", () => {
+    if (!button.classList.contains("armed")) {
+      clearTimeout(timer);
+      button.textContent = question;
+      button.classList.add("armed");
+      timer = setTimeout(reset, 5000);
+      return;
+    }
+    reset();
+    onConfirm();
+  });
 }
-$("btn-clear").addEventListener("click", () => {
-  const button = $("btn-clear");
-  if (!button.classList.contains("armed")) {
-    clearTimeout(clearTimer);
-    button.textContent = "Erase everything? Click again";
-    button.classList.add("armed");
-    clearTimer = setTimeout(resetClearButton, 5000);
-    return;
-  }
-  resetClearButton();
+// Clear addresses removes only the saved addresses; your keys, criteria and other settings stay.
+twoClickButton("btn-clear-addresses", "Remove all addresses? Click again", () => {
+  clearParcels();
+  compareIds = [];
+  for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();
+  renderAll();
+  $("status").hidden = false;
+  $("status").innerHTML = "<strong>All saved addresses were removed.</strong> Your API keys, criteria and other settings were kept.";
+  clearProgress(10000);
+});
+// Clear data erases everything saved in this browser.
+twoClickButton("btn-clear", "Erase everything? Click again", () => {
   clearAllData();
   compareIds = [];
   for (const dialog of document.querySelectorAll("dialog[open]")) dialog.close();

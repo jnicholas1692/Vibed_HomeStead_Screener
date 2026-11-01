@@ -2,7 +2,7 @@
 
 // The version shown in the page footer and the day it was released. Change both with every release,
 // along with "version" in package.json and the README version history (tests/version.test.js checks they agree).
-const APP_VERSION = "2.9.0";
+const APP_VERSION = "2.10.0";
 const APP_UPDATED = "2026-11-01";   // year-month-day
 
 // Where sources.js keeps which map server worked last and which are resting (Clear data erases it too).
@@ -701,11 +701,12 @@ const SETTING_TIPS = {
 
 // Explanations for fixed parts of the page, keyed by element id. An input or select gets its tip on its label text; a button on itself.
 const UI_TIPS = {
-  "btn-add": "Add a parcel by address, a click on the map or coordinates. The app then looks up free public data for that spot.",
+  "btn-add": "Add a place to screen by its street address, a click on the map or coordinates. The app then looks up free public data for that spot.",
   "btn-criteria": "Open Settings: the 10-point scoring, dealbreakers, cost and loan numbers, and the order of report sections.",
   "btn-export": "Save all your parcels, notes and settings to a file you can keep or move to another browser.",
   "btn-import": "Load parcels and settings from a file made by Export.",
-  "btn-clear": "Erase every parcel, note and setting stored in this browser. Export first if you want a copy.",
+  "btn-clear-addresses": "Remove every saved address and its report, but keep your settings: the Census and api.data.gov keys, criteria, ranges, family ages and airports. Export first if you want a copy of the addresses.",
+  "btn-clear": "Erase everything stored in this browser: every address, note and setting, including your API keys. Export first if you want a copy.",
   "sort-by": "Choose how the list is ordered.",
   "filter-status": "Show only parcels with this status. You set a parcel's status inside its report.",
   "hide-dealbreakers": "Hide parcels that hit a dealbreaker you switched on in Settings.",

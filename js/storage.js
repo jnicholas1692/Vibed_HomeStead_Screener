@@ -91,6 +91,18 @@ let view = loadView();
 let parcels = readStored(PARCELS_KEY, []);
 if (!Array.isArray(parcels)) parcels = [];
 
+// Before v2.10.0 a children's dentist could be saved as the nearest pediatrician. Only the name was kept, so a saved
+// one whose name sounds like a dentist is forgotten; Refresh data then looks the pediatrician up again.
+const DENTIST_NAME = /dent|orthodon|teeth|tooth|smile/i;   // "dent" also catches Dental, Dentistry and Dentist
+function forgetDentistPediatricians(list) {
+  for (const parcel of list) {
+    const places = parcel && parcel.site && parcel.site.places;
+    if (places && places.pediatrician && DENTIST_NAME.test(places.pediatrician.name || "")) delete places.pediatrician;
+  }
+  return list;
+}
+forgetDentistPediatricians(parcels);
+
 const saveParcels = () => writeStored(PARCELS_KEY, parcels);
 
 // Erases everything this app saved in this browser (parcels, criteria, list view) and starts again from the defaults.
@@ -101,5 +113,10 @@ function clearAllData() {
   parcels = [];
   settings = loadSettings();
   view = loadView();
+}
+// Removes every saved address (parcel) but keeps your settings, including the Census and api.data.gov keys.
+function clearParcels() {
+  parcels = [];
+  saveParcels();
 }
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);

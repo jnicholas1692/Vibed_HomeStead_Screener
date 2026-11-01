@@ -26,7 +26,7 @@ test("every report section and fixed button named in the page has a hover explan
     // Some of these elements are made later by ui.js (the Settings window), so look in both files.
     assert.ok(html.includes(`id="${id}"`) || ui.includes(`id="${id}"`), `${id} exists`);
   }
-  for (const id of ["btn-add", "btn-criteria", "btn-export", "btn-import", "btn-clear", "btn-compare", "f-name", "f-address", "f-lat", "f-lon", "f-acres", "f-price"]) {
+  for (const id of ["btn-add", "btn-criteria", "btn-export", "btn-import", "btn-clear-addresses", "btn-clear", "btn-compare", "f-name", "f-address", "f-lat", "f-lon", "f-acres", "f-price"]) {
     assert.ok(uiTips[id], `${id} has a tip`);
   }
 });

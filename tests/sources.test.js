@@ -1104,6 +1104,55 @@ test("clearAllData erases what was saved and goes back to the defaults", () => {
   assert.equal(app.get("view.sort"), app.get("DEFAULT_VIEW.sort"));
 });
 
+test("clearParcels removes the addresses but keeps the API keys and other settings", () => {
+  const stored = {};
+  const localStorage = { getItem: (k) => (k in stored ? stored[k] : null), setItem: (k, v) => { stored[k] = String(v); }, removeItem: (k) => { delete stored[k]; } };
+  const document = { getElementById: () => ({}) };
+  stored["homestead-screener.settings.v1"] = JSON.stringify({ censusKey: "census-test", crimeKey: "crime-test", priceTarget: 1 });
+  const app = loadScripts(["config.js", "scoring.js", "storage.js"], { localStorage, document });
+  app.get("parcels").push({ id: "a", name: "Test" });
+  app.get("saveParcels")();
+  app.get("clearParcels")();
+  assert.equal(app.get("parcels").length, 0);
+  assert.equal(stored["homestead-screener.parcels.v1"], "[]");
+  const kept = JSON.parse(stored["homestead-screener.settings.v1"]);
+  assert.equal(kept.censusKey, "census-test");
+  assert.equal(kept.crimeKey, "crime-test");
+  assert.equal(app.get("settings.censusKey"), "census-test");
+  assert.equal(app.get("settings.priceTarget"), 1);
+});
+
+// ---- pediatricians, not children's dentists ----
+test("a children's dentist is not a pediatrician", () => {
+  const isPediatrician = pure.get("isPediatrician");
+  assert.equal(isPediatrician({ "healthcare:speciality": "paediatrics" }), true);
+  assert.equal(isPediatrician({ "healthcare:speciality": "pediatrics" }), true);
+  assert.equal(isPediatrician({ "healthcare:speciality": "family_medicine;paediatrics" }), true);
+  assert.equal(isPediatrician({ healthcare: "dentist", "healthcare:speciality": "paediatrics" }), false);
+  assert.equal(isPediatrician({ amenity: "dentist", "healthcare:speciality": "paediatrics" }), false);
+  assert.equal(isPediatrician({ "healthcare:speciality": "paediatric_dentistry" }), false);
+  assert.equal(isPediatrician({ "healthcare:speciality": "pediatric_orthodontics" }), false);
+  assert.equal(isPediatrician({ "healthcare:speciality": "dentistry" }), false);
+  // The query also leaves dentists out, by tag only (no name pattern).
+  const query = pure.get("buildPlacesQuery")(30, -98, 12000, pure.get("PLACE_KINDS").filter((k) => k.key === "pediatrician"));
+  assert.ok(query.includes('["healthcare"!="dentist"]["amenity"!="dentist"]'), query);
+});
+
+test("a dentist saved as the pediatrician before v2.10.0 is forgotten, so Refresh data looks it up again", () => {
+  const document = { getElementById: () => ({}) };
+  const saved = [
+    { id: "a", site: { places: { pediatrician: { name: "Kids Smiles Pediatric Dentistry", miles: 3 }, pharmacy: { name: "CVS" } } } },
+    { id: "b", site: { places: { pediatrician: { name: "Hill Country Pediatrics", miles: 9 } } } },
+    { id: "c", site: {} },
+  ];
+  const localStorage = { getItem: (k) => (k === "homestead-screener.parcels.v1" ? JSON.stringify(saved) : null), setItem: () => {}, removeItem: () => {} };
+  const app = loadScripts(["config.js", "scoring.js", "storage.js"], { localStorage, document });
+  const places = (id) => app.get("parcels").find((p) => p.id === id).site.places;
+  assert.equal("pediatrician" in places("a"), false);
+  assert.equal(places("a").pharmacy.name, "CVS");
+  assert.equal(places("b").pediatrician.name, "Hill Country Pediatrics");
+});
+
 // ---- address suggestions ----
 const photonFeature = (props, coords = [-98.4, 30.275]) => ({ properties: props, geometry: { coordinates: coords } });
 

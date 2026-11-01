@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v2.9.0.
+> Last updated for v2.10.0.
 
 ## 1. Problem
 
@@ -113,6 +113,9 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R76 | Texas-designated delivery hospitals | When Expecting is ticked, Texas parcels get the three nearest hospitals designated for maternal care and for neonatal care within 150 miles, with level, city and distance (routed drive time to the nearest), from the DSHS EMS/Trauma Systems map; the current layers are found from the map itself, with the last known layers as a fallback; outside Texas the report says no list exists and to call the hospitals | `feature/family-needs` |
 | R77 | Family places only when needed | The family kinds of places and the DSHS layers are asked only for the ages ticked; ticking an age later makes only those missing, so Refresh data asks just for them; doctors are matched by specialty tag only (no name patterns, which time out) | `feature/family-needs` |
 | R78 | Family criteria | Three optional criteria with sliders: delivery hospital drive (30 to 90 min, Texas only), pediatrician drive (20 to 60 min) and child care drive (the nearer of child care or a preschool, 15 to 45 min), each with a dealbreaker switch | `feature/family-needs` |
+| R79 | Pediatricians, not dentists | The nearest pediatrician leaves out children's dentists and orthodontists: places tagged as dentists, and specialties like paediatric_dentistry, both in the Overpass query (by tag only) and when sorting the reply; a pediatrician saved before v2.10.0 whose name sounds like a dentist (dent, orthodon, teeth, tooth, smile) is forgotten when the page loads or a file is imported, so Refresh data looks it up again | `feature/pediatricians-addresses-clear` |
+| R80 | Address wording | The main labels say address instead of parcel: Add address, Add an address and Edit address, Ranked addresses, the Address list column, Compare addresses, Load 3 demo addresses, and the empty-list and Pick hints; report text and saved data keep the old word | `feature/pediatricians-addresses-clear` |
+| R81 | Clear addresses | A Clear addresses button removes every saved address after a second click to confirm (the question goes away after 5 seconds) and keeps the settings, including the Census and api.data.gov keys; Clear data still erases everything | `feature/pediatricians-addresses-clear` |
 
 ## 5. Scoring rules
 
@@ -185,8 +188,8 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 
 ## 10. Testing
 
-- 195 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
-- 265 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
+- 198 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
+- 269 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
 - Live checks against real services are manual (see the tutorial).
 
 ## 11. What I would do next
