@@ -2,8 +2,8 @@
 
 // The version shown in the page footer and the day it was released. Change both with every release,
 // along with "version" in package.json and the README version history (tests/version.test.js checks they agree).
-const APP_VERSION = "2.11.0";
-const APP_UPDATED = "2026-11-01";   // year-month-day
+const APP_VERSION = "2.12.0";
+const APP_UPDATED = "2026-11-02";   // year-month-day
 
 // Where sources.js keeps which map server worked last and which are resting (Clear data erases it too).
 const OVERPASS_MEMORY_KEY = "homestead-screener.overpass.v1";
@@ -719,7 +719,7 @@ const UI_TIPS = {
   "btn-demo": "Add three made-up parcels so you can see how the app works. Delete them when you are done.",
   "btn-save": "Save the parcel and look up its data from the public sources.",
   "f-name": "A label for the parcel. It follows the address unless you type your own.",
-  "f-address": "Optional. Pick a suggestion to fill in the coordinates. The text you type is sent to the photon.komoot.io address service.",
+  "f-address": "Optional. Type or paste an address, for example from a listing. A suggestion fills in the coordinates. Otherwise pressing Add looks it up with the Census Bureau, then OpenStreetMap's Nominatim. The text is sent to those services and, while you type, to photon.komoot.io.",
   "f-lat": "Latitude of the spot, in decimal degrees (north is positive). All lookups use this exact point.",
   "f-lon": "Longitude of the spot, in decimal degrees. In the US it is negative (west).",
   "f-acres": "Size of the parcel in acres. The app cannot see parcel lines, so this is only what you enter.",

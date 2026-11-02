@@ -58,6 +58,152 @@ async function geocodeAddress(address) {
   return { lat: match.coordinates.y, lon: match.coordinates.x, matched: match.matchedAddress };
 }
 
+/* ---- finding an address copied from a listing ---- */
+
+// The Census geocoder has no answer for many rural addresses and for land listings with no house number ("TBD Hwy 281",
+// "Lot 12 Cypress Creek Rd"), and it can quietly answer with another street (on 2026-11-02, "120 Oak Hollow Trl" came back
+// as "120 Oak Ln"). So every answer's street is checked against what was asked, and Nominatim (OpenStreetMap's own search,
+// which allows requests from a web page) is the backup. Its rules allow one request a second, and only for a lookup you asked
+// for, so it is used when you press Add, never while typing.
+const NOMINATIM = "https://nominatim.openstreetmap.org/search";
+const NOMINATIM_GAP_MS = 1100;
+const ADDRESS_NEAR_MILES = 15;   // a street farther than this from the address's ZIP or town is taken to be another street with the same name
+
+// Copied text can hold odd spaces, line breaks and the site's name. Returns one tidy line.
+function cleanAddressText(text) {
+  return String(text || "")
+    .replace(/\s*[\r\n]+\s*/g, ", ")                  // a line break between the street and the town
+    .replace(/[\s ]+/g, " ")                     //   is the "no-break space" web pages often use
+    .replace(/\s+[|–—-]\s+.*(zillow|redfin|realtor|trulia|mls).*$/i, "")   // "... | Zillow" or "... - Redfin"
+    .replace(/,?\s*(USA|United States)\.?\s*$/i, "")
+    .trim();
+}
+
+// One line -> { street, number, town, state, zip }. `number` is null for a listing with no real house number:
+// TBD, 0, Lot 12, Tract 5, Block 3 and the like. Unit numbers ("#4", "Apt 3") are dropped: the land is what matters.
+function parseListingAddress(text) {
+  const parts = cleanAddressText(text).split(",").map((part) => part.trim()).filter(Boolean);
+  let street = parts[0] || "";
+  let town = null, state = null, zip = null;
+  // With no commas ("100 Main St Blanco TX 78606") the street cannot be told from the town, so `loose` marks it for sameStreet.
+  const loose = parts.length === 1;
+  let tail = parts[parts.length - 1] || "";
+  const zipEnd = /\s*\b(\d{5})(?:-\d{4})?$/.exec(tail);   // a ZIP at the very end, with or without its last four digits
+  if (zipEnd) { zip = zipEnd[1]; tail = tail.slice(0, zipEnd.index); }
+  const stateEnd = /(?:^|\s)([A-Za-z]{2})$/.exec(tail);   // a two-letter state at the very end
+  if (loose) {
+    if (stateEnd) state = stateEnd[1].toUpperCase();
+    street = zipEnd ? street.slice(0, zipEnd.index) : street;
+    if (stateEnd) street = street.slice(0, stateEnd.index);
+  } else if (stateEnd) {
+    state = stateEnd[1].toUpperCase();
+    town = tail.slice(0, stateEnd.index).trim() || (parts.length > 2 ? parts[parts.length - 2] : null);
+  } else if (zip || parts.length > 2) {   // the state spelled out, like "Blanco, Texas 78606"
+    state = tail.trim() || null;
+    town = parts.length > 2 ? parts[parts.length - 2] : null;
+  } else {
+    town = tail.trim() || null;           // just a town: "100 Main St, Blanco"
+  }
+  street = street.replace(/\s*(#\s*\S+|\b(apt|apartment|unit|ste|suite)\.?\s+\S+)\s*$/i, "");
+  // Words that stand where a house number would. The loop handles "Lot 12 Block 3 Oak Rd".
+  const placeholder = /^(tbd|tba|n\/?a|x+|0+|(lot|lots|tract|block|blk|parcel)\s+[\w-]+)[\s,:-]+/i;
+  let hadPlaceholder = false;
+  while (placeholder.test(street)) { street = street.replace(placeholder, ""); hadPlaceholder = true; }
+  const numbered = hadPlaceholder ? null : /^(\d+[A-Za-z]?)\s+(.+)$/.exec(street);
+  return { street: numbered ? numbered[2] : street, number: numbered ? numbered[1] : null, town, state, zip, loose };
+}
+
+// The words that identify a street, so two spellings can be compared: "Farm to Market Rd 2325" and "FM 2325" both give
+// FM, 2325. Directions and words like Road or Lane are left out because the services add, drop and shorten them.
+function streetWords(street) {
+  const words = ` ${String(street || "").toUpperCase().replace(/[.,'#]/g, "").replace(/-/g, " ")} `
+    .replace(/ FARM TO MARKET /g, " FM ")
+    .replace(/ (RANCH TO MARKET|RANCH ROAD|RANCH RD|RM) /g, " RR ")
+    .replace(/ (COUNTY ROAD|COUNTY RD|CO RD|CO ROAD) /g, " CR ")
+    .replace(/ (PRIVATE ROAD|PRIVATE RD|PVT RD) /g, " PR ")
+    .replace(/ (US HIGHWAY|US HWY|STATE HIGHWAY|STATE HWY|TX HIGHWAY|TX HWY|HIGHWAY|SH|US) /g, " HWY ")
+    .replace(/ MTN /g, " MOUNTAIN ").replace(/ MT /g, " MOUNT ").replace(/ FT /g, " FORT ")
+    .trim().split(/\s+/).filter(Boolean);
+  const skip = new Set(["N", "S", "E", "W", "NE", "NW", "SE", "SW", "NORTH", "SOUTH", "EAST", "WEST",
+    "ST", "STREET", "RD", "ROAD", "LN", "LANE", "DR", "DRIVE", "TRL", "TRAIL", "AVE", "AVENUE", "CIR", "CIRCLE", "CT", "COURT",
+    "BLVD", "BOULEVARD", "PKWY", "PARKWAY", "PL", "PLACE", "WAY", "TER", "TERRACE", "LOOP"]);
+  const kept = words.filter((word) => !skip.has(word));
+  return kept.length ? kept : words;   // a street named only with such words ("Lane Road") keeps them all
+}
+
+// True when `found` is the street that was asked for: every identifying word asked for is in the answer.
+// When `loose`, what was asked also holds the town, so instead every word of the answer must be in what was asked.
+function sameStreet(asked, found, loose = false) {
+  const [needed, among] = loose ? [streetWords(found), streetWords(asked)] : [streetWords(asked), streetWords(found)];
+  const words = new Set(among);
+  return needed.length > 0 && needed.every((word) => words.has(word));
+}
+
+async function nominatimSearch(params) {
+  const query = new URLSearchParams({ format: "jsonv2", countrycodes: "us", addressdetails: "1", ...params });
+  const rows = await getJSON(`${NOMINATIM}?${query}`, {}, 15000);
+  return Array.isArray(rows) ? rows : [];
+}
+
+// Looks up an address copied from a listing. Returns one of:
+//   { lat, lon, matched, precision: "exact" }   the address itself
+//   { lat, lon, matched, precision: "street" }  a point on the right street near the ZIP or town, but not the lot
+//   { near: { lat, lon }, area }                no such street was found, but this is its ZIP or town
+//   null                                        nothing was found
+// A service that fails counts as no answer; only when every service asked has failed does this throw.
+async function findAddress(text, { census = geocodeAddress, gapMs = NOMINATIM_GAP_MS } = {}) {
+  const asked = parseListingAddress(text);
+  if (!asked.street) return null;
+  const rest = [asked.town, [asked.state, asked.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+  let answers = 0, lastError = null;
+  const attempt = async (ask) => {
+    try { const out = await ask(); answers += 1; return out; } catch (error) { lastError = error; return null; }
+  };
+
+  // 1. The Census, for an address with a house number. The answer must be that number on that street.
+  if (asked.number) {
+    const match = await attempt(() => census([`${asked.number} ${asked.street}`, rest].filter(Boolean).join(", ")));
+    if (match) {
+      const [numberFound, ...streetFound] = String(match.matched || "").split(",")[0].trim().split(/\s+/);
+      if (numberFound === asked.number && sameStreet(asked.street, streetFound.join(" "), asked.loose)) {
+        return { lat: match.lat, lon: match.lon, matched: match.matched, precision: "exact" };
+      }
+    }
+  }
+
+  // 2. Where the ZIP or town is, to search around it and to reject same-named streets far away.
+  const wait = () => new Promise((resolve) => setTimeout(resolve, gapMs));
+  const areaSearch = asked.zip ? { postalcode: asked.zip } : (asked.town && asked.state ? { city: asked.town, state: asked.state } : null);
+  let center = null;
+  if (areaSearch) {
+    const rows = await attempt(() => nominatimSearch({ ...areaSearch, limit: "1" }));
+    if (rows && rows[0]) center = { lat: Number(rows[0].lat), lon: Number(rows[0].lon) };
+    await wait();
+  }
+
+  // 3. OpenStreetMap: first with the house number when there is one, then just the street. Only results on a road count:
+  // on 2026-11-02 "Cypress Creek Rd" also found Cypress Creek, the stream. (`viewbox` limits the search to about 20 miles around.)
+  const box = center ? { viewbox: `${center.lon - 0.3},${center.lat + 0.3},${center.lon + 0.3},${center.lat - 0.3}`, bounded: "1" } : {};
+  const milesAway = (row) => (center ? haversineMiles(center.lat, center.lon, Number(row.lat), Number(row.lon)) : 0);
+  const searches = asked.number ? [`${asked.number} ${asked.street}`, asked.street] : [asked.street];
+  if (center || asked.state) {
+    for (const [i, words] of searches.entries()) {
+      if (i > 0) await wait();
+      const rows = await attempt(() => nominatimSearch({ q: center ? words : `${words}, ${asked.state}`, limit: "5", ...box }));
+      const good = (rows || [])
+        .filter((row) => sameStreet(asked.street, (row.address && row.address.road) || "", asked.loose) && milesAway(row) <= ADDRESS_NEAR_MILES)
+        .sort((a, b) => milesAway(a) - milesAway(b));
+      if (good[0]) {
+        const exact = asked.number && good[0].address && good[0].address.house_number === asked.number;
+        return { lat: Number(good[0].lat), lon: Number(good[0].lon), matched: good[0].display_name, precision: exact ? "exact" : "street" };
+      }
+    }
+  }
+
+  if (answers === 0 && lastError) throw lastError;
+  return center ? { near: center, area: asked.zip || asked.town } : null;
+}
+
 // Address suggestions while typing. Photon (photon.komoot.io) is a free search over
 // OpenStreetMap that allows requests from a web page. It is only used to suggest
 // addresses; the Census geocoder is still what looks the final address up.

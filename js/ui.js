@@ -124,6 +124,7 @@ function ranked() {
    7. Map
    ===================================================================== */
 let map = null, markerLayer = null, pickMode = false;
+let pickCenter = null;   // where the map should open for the next pick, or null to leave it where it is
 
 function initMap() {
   if (typeof L === "undefined") { $("map-warning").hidden = false; return; }
@@ -165,6 +166,8 @@ function startPick() {
   $("dlg-add").close();
   pickMode = true;
   document.body.classList.add("picking");
+  if (pickCenter && map) map.setView([pickCenter.lat, pickCenter.lon], 13);   // the ZIP or town of an address that was not found
+  pickCenter = null;
   $("map").scrollIntoView({ block: "center", behavior: "smooth" });
 }
 
@@ -175,7 +178,10 @@ function endPick() {
 }
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && pickMode) endPick();
+  if (event.key === "Escape" && pickMode) {
+    event.preventDefault();   // otherwise the same key press also closes the Add window that endPick just reopened
+    endPick();
+  }
 });
 
 /* =====================================================================
@@ -919,6 +925,7 @@ function openDetail(id) {
     <div class="dlg-body">
       <div class="print-only sub">Printed ${esc(new Date().toLocaleDateString())} from Homestead Land Screener. Data sources are listed at the end of the report.</div>
       ${busy ? `<p class="notice no-print" role="status">Looking up data: ${lookupDone} of ${lookupTotal} lookups finished. The report fills in as each one arrives.</p>` : ""}
+      ${p.locationApprox ? `<p class="notice"><strong>Approximate location:</strong> the exact address was not found, so this spot is on the same street and may be some way from the land. Results here can differ from the land's. Use Edit to enter its latitude and longitude, or pick it on the map.</p>` : ""}
       ${score.dealbreakers.length ? `<p class="notice bad"><strong>Dealbreakers:</strong> ${esc(score.dealbreakers.join("; "))}</p>` : ""}
       <div class="score-line"><span class="big">${scoreText(score.total)}</span><span class="sub">score &middot; ${score.factorsScored} of ${score.factorsTotal} of your criteria had data</span></div>
       <div class="table-scroll"><table class="summary-table"><thead><tr><th>${helpLabel("Criterion")}</th><th>${helpLabel("What we found")}</th><th class="num">${tipSpan("Score", "This criterion's score from 0 (worst) to 100 (best). \"no data\" means the lookup found nothing, so the criterion is skipped, not scored as zero.")}</th><th></th></tr></thead><tbody>${summaryRows}</tbody></table></div>
@@ -1037,6 +1044,7 @@ async function addParcelFromForm(event) {
   let lat = parseNumber($("f-lat").value), lon = parseNumber($("f-lon").value);
   const acres = parseNumber($("f-acres").value), price = parseNumber($("f-price").value);
   const exemptions = readExemptions();
+  let locationApprox = false;   // true when the address could only be placed on its street, not on the lot
   if (!name) return fail("Enter a name or an address.");
   if ([lat, lon, acres, price].some((v) => Number.isNaN(v))) return fail("Latitude, longitude, acres and price must be numbers.");
   if ((lat == null) !== (lon == null)) return fail("Enter both latitude and longitude, or neither.");
@@ -1048,9 +1056,15 @@ async function addParcelFromForm(event) {
     if (lat == null) {
       if (!address) return fail("Enter an address, enter coordinates, or pick the spot on the map.");
       let match;
-      try { match = await geocodeAddress(address); } catch { return fail("The address lookup service did not respond. Try again, or pick the spot on the map."); }
+      try { match = await findAddress(address); } catch { return fail("The address lookup services did not respond. Try again, or pick the spot on the map."); }
       if (!match) return fail("No match for that address. Pick the spot on the map instead.");
+      if (match.near) {
+        // Nothing is added at the middle of a ZIP or town: every result would describe the wrong land.
+        pickCenter = match.near;
+        return fail(`That street was not found near ${match.area}, so nothing was added. Rural roads and new lots are often missing from the free address services. Click "Pick location on the map": the map opens at ${match.area}. Or enter the latitude and longitude.`);
+      }
       lat = match.lat; lon = match.lon;
+      locationApprox = match.precision === "street";
     }
     if (!(lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180)) return fail("Coordinates are out of range.");
     if (!inUnitedStates(lat, lon)) return fail("That spot looks outside the United States, and these data sources only cover the US. Check the latitude and longitude (US longitudes are negative).");
@@ -1063,7 +1077,7 @@ async function addParcelFromForm(event) {
       if (acres !== existing.acres) existing.acresSource = acres == null ? undefined : "you";   // you changed them, so they are yours now
       existing.name = name; existing.address = address || null; existing.acres = acres; existing.askingPrice = price;
       existing.exemptions = exemptions;
-      if (moved) { existing.lat = lat; existing.lon = lon; existing.county = null; existing.site = {}; existing.errors = []; existing.fetchedAt = null; }
+      if (moved) { existing.lat = lat; existing.lon = lon; existing.county = null; existing.site = {}; existing.errors = []; existing.fetchedAt = null; existing.locationApprox = locationApprox; }
       saveParcels();
       renderAll();
       const id = editingId;
@@ -1083,7 +1097,7 @@ async function addParcelFromForm(event) {
       }
       return;
     }
-    const parcel = { id: newId(), name, address: address || null, lat, lon, county: null, acres, askingPrice: price, exemptions,
+    const parcel = { id: newId(), name, address: address || null, lat, lon, locationApprox, county: null, acres, askingPrice: price, exemptions,
       status: "new", notes: "", createdAt: new Date().toISOString(), site: {}, errors: [], fetchedAt: null };
     parcels.push(parcel);
     saveParcels();
