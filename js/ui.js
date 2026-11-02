@@ -23,6 +23,12 @@ function tipSpan(label, tip) {
   return `<span class="help" tabindex="0" role="note" data-tip="${esc(tip)}" aria-label="${esc(`${label}. ${tip}`)}">${esc(label)}</span>`;
 }
 
+// A short note under a report section. The full explanation stays one hover or tap away, on "More", and is not printed.
+// `short` is HTML, so it can hold a link; `details` is plain words.
+function noteHtml(short, details) {
+  return `<p class="hint">${short} <span class="no-print">${tipSpan("More", details)}</span></p>`;
+}
+
 // Attributes that give a button (or any element) a hover explanation without dotting its text.
 function tipAttr(tip) {
   return `data-tip="${esc(tip)}" aria-description="${esc(tip)}"`;
@@ -405,7 +411,7 @@ function internetHtml(internet) {
   const rows = internet.providers.map((p) => `<tr><td>${esc(p.name)}</td><td>${esc(p.tech)}</td><td class="num">${p.down} / ${p.up}</td></tr>`).join("");
   return `<p style="margin:0">${summary}</p>
     ${rows ? `<div class="table-scroll"><table><thead><tr><th>Provider</th><th>Technology</th><th class="num">Max Mbps down / up</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}
-    <p class="hint">FCC Form 477 data from ${esc(internet.vintage)} (the latest block-level set in the FCC's open data), reported per census block. A block counts as served if any location in it is, so this likely overstates coverage on rural land, and it does not include newer services such as Starlink. Check the exact address on the <a href="https://broadbandmap.fcc.gov/" target="_blank" rel="noopener">FCC National Broadband Map</a> and with each provider before relying on it.</p>`;
+    ${noteHtml(`FCC data from ${esc(internet.vintage)}. It likely overstates rural coverage and leaves out newer services like Starlink, so check the <a href="https://broadbandmap.fcc.gov/" target="_blank" rel="noopener">FCC map</a>.`, `FCC Form 477 data from ${internet.vintage} (the latest block-level set in the FCC's open data), reported per census block. A block counts as served if any location in it is, so this likely overstates coverage on rural land, and it does not include newer services such as Starlink. Check the exact address on the FCC National Broadband Map and with each provider before relying on it.`)}`;
 }
 
 function placesHtml(places) {
@@ -423,7 +429,7 @@ function placesHtml(places) {
     return `<tr class="group-row"><th colspan="4">${esc(group.label)}</th></tr>${kindRows}`;
   }).join("");
   return `<div class="table-scroll"><table><thead><tr><th>Type</th><th>Nearest</th><th class="num">Straight line</th><th class="num">Drive</th></tr></thead><tbody>${rows}</tbody></table></div>
-    <p class="hint">From OpenStreetMap, which volunteers keep up to date. Rural shops are often missing or unnamed, so "none found" does not prove there is none. School levels come from the grades, the level tag or the name, and a school with none of those is skipped. Private and charter schools are included, and the list says nothing about which school serves your address, so ask the district. Volunteer fire departments and small sheriff substations are often missing, and a hospital listed here may not run a full emergency room, so call to confirm before you rely on it. A drive time with "~" is estimated from straight-line distance; one without it comes from a road route. Confirm on a map before you rely on it.</p>`;
+    ${noteHtml(`From OpenStreetMap: rural places are often missing, so "none found" does not prove there is none. "~" marks an estimated drive time.`, `From OpenStreetMap, which volunteers keep up to date. Rural shops are often missing or unnamed, so "none found" does not prove there is none. School levels come from the grades, the level tag or the name, and a school with none of those is skipped. Private and charter schools are included, and the list says nothing about which school serves your address, so ask the district. Volunteer fire departments and small sheriff substations are often missing, and a hospital listed here may not run a full emergency room, so call to confirm before you rely on it. A drive time with "~" is estimated from straight-line distance; one without it comes from a road route. Confirm on a map before you rely on it.`)}`;
 }
 
 function publicLandHtml(pl) {
@@ -435,7 +441,7 @@ function publicLandHtml(pl) {
   const rows = pl.areas.map((a) => `<tr><td>${esc(a.name)}</td><td>${esc(a.manager)}</td><td>${esc(a.type || "")}</td><td>${esc(a.access)}</td><td class="num">${a.acres ? a.acres.toLocaleString("en-US") : "?"}</td></tr>`).join("");
   return `<p style="margin:0">${esc(headline)}</p>
     ${rows ? `<div class="table-scroll"><table><thead><tr><th>Area</th><th>Managed by</th><th>Type</th><th>Public access</th><th class="num">Acres</th></tr></thead><tbody>${rows}</tbody></table></div>` : ""}
-    <p class="hint">From the USGS Protected Areas Database. The list shows areas within the distance above, not in order of distance, and leaves out areas whose public access is unknown. "Open" access means people can visit, not that every use (such as camping) is allowed: check the managing agency. Land next to a parcel can be nice, but a neighboring public area can also bring crowds or fire risk.</p>`;
+    ${noteHtml(`"Open" access means people can visit, not that every use is allowed. Check with the managing agency.`, `From the USGS Protected Areas Database. The list shows areas within the distance above, not in order of distance, and leaves out areas whose public access is unknown. "Open" access means people can visit, not that every use (such as camping) is allowed: check the managing agency. Land next to a parcel can be nice, but a neighboring public area can also bring crowds or fire risk.`)}`;
 }
 
 function wetlandsHtml(w) {
@@ -447,7 +453,7 @@ function wetlandsHtml(w) {
       ${`<div>At this point</div><div>${w.onWetland ? "inside a mapped wetland" : "not in a mapped wetland"}</div>`}
       ${`<div>Within a quarter mile</div><div>${nearby}</div>`}
     </div>
-    <p class="hint">From the US Fish and Wildlife Service National Wetlands Inventory, mapped mostly from aerial photos. It is a screening map, not a legal wetland boundary: small or seasonal wetlands can be missing, and some areas were mapped decades ago. A formal wetland delineation (done by a qualified consultant, for the Army Corps of Engineers) decides what counts. Ponds and lakes are included here.</p>`;
+    ${noteHtml(`A screening map, not a legal wetland boundary: small or seasonal wetlands can be missing.`, `From the US Fish and Wildlife Service National Wetlands Inventory, mapped mostly from aerial photos. It is a screening map, not a legal wetland boundary: small or seasonal wetlands can be missing, and some areas were mapped decades ago. A formal wetland delineation (done by a qualified consultant, for the Army Corps of Engineers) decides what counts. Ponds and lakes are included here.`)}`;
 }
 
 function groundwaterHtml(gw) {
@@ -461,7 +467,7 @@ function groundwaterHtml(gw) {
       ${allOld ? `<p class="notice">These wells were last measured more than 10 years ago, so the depths may have changed. Many USGS wells in rural areas are no longer measured.</p>` : ""}`
     : `<p>No USGS monitoring well with a depth-to-water reading within about ${gw.searchedMiles} miles.</p>`;
   return `${body}
-    <p class="hint">Depth is feet below ground to the water level in a monitoring well, which is not your lot. Water depth, rock type and well yield can differ a lot over a mile, and a deep or shallow reading nearby does not tell you what a new well will find. A monitoring well may tap a different layer (aquifer) than a household well would. In Texas, the Texas Water Development Board's Water Data for Texas site has driller reports for existing wells near you, and your groundwater conservation district sets the drilling rules. Ask a local well driller what depth and yield to expect.</p>`;
+    ${noteHtml(`From monitoring wells, not your lot: depth and yield can differ a lot over a mile. Ask a local well driller.`, `Depth is feet below ground to the water level in a monitoring well, which is not your lot. Water depth, rock type and well yield can differ a lot over a mile, and a deep or shallow reading nearby does not tell you what a new well will find. A monitoring well may tap a different layer (aquifer) than a household well would. In Texas, the Texas Water Development Board's Water Data for Texas site has driller reports for existing wells near you, and your groundwater conservation district sets the drilling rules. Ask a local well driller what depth and yield to expect.`)}`;
 }
 
 // "4 (Flood, Winter Storm); latest Flood, 2026-07-18" for the county's disaster declarations.
@@ -512,7 +518,7 @@ function peopleHtml(more) {
   const cell = (place, key, format) => (place ? esc(format(place[key])) : "?");
   return `<div class="table-scroll"><table><thead><tr><th></th><th class="num">${tipSpan("This area", "The census tract the spot is in: a neighborhood of a few thousand people drawn by the Census Bureau. Rural tracts can cover many miles.")}</th><th class="num">${tipSpan("Whole county", "The same figures for the whole county, to compare with.")}</th></tr></thead>
     <tbody>${rows.map(([label, key, format]) => `<tr><td>${helpLabel(label)}</td><td class="num">${cell(people.tract, key, format)}</td><td class="num">${cell(people.county, key, format)}</td></tr>`).join("")}</tbody></table></div>
-    <p class="hint">Estimates from the Census Bureau's American Community Survey${people.release ? ` (${esc(people.release)})` : ""}, an average over five years of surveys, through Census Reporter. Small rural areas have wide margins of error, so treat close numbers as about the same.</p>`;
+    ${noteHtml(`Census survey estimates${people.release ? ` (${esc(people.release)})` : ""}. Small rural areas have wide margins of error.`, `Estimates from the Census Bureau's American Community Survey${people.release ? ` (${people.release})` : ""}, an average over five years of surveys, through Census Reporter. Small rural areas have wide margins of error, so treat close numbers as about the same.`)}`;
 }
 
 // "Family needs": for the ages you ticked in Settings, the places that matter and what to know. Empty when none is ticked,
@@ -568,7 +574,7 @@ function familyHtml(p) {
       <h3>Family needs</h3>
       <div class="kv">${designated}${placeRows}</div>
       ${advice}
-      <p class="hint">Doctors' offices, child care and preschools are thinly mapped in OpenStreetMap, so "none found" often means "not on the map". Drive times marked estimated come from straight-line distance. Confirm with the providers, the school district and the hospital before you rely on any of this.</p>
+      ${noteHtml(`Thinly mapped in OpenStreetMap, so "none found" often means "not on the map". Confirm with the providers.`, `Doctors' offices, child care and preschools are thinly mapped in OpenStreetMap, so "none found" often means "not on the map". Drive times marked estimated come from straight-line distance. Confirm with the providers, the school district and the hospital before you rely on any of this.`)}
       ${(() => { const keys = sourceKeysUsed(p).filter((k) => k === "txMaternal" || k === "places"); return keys.length ? sourceHtml(keys, site) : ""; })()}`;
 }
 
@@ -592,7 +598,7 @@ function crimeHtml(more) {
     <div class="table-scroll"><table><thead><tr><th></th><th class="num">Offenses</th><th class="num">Per 100,000</th><th class="num">Texas</th><th class="num">US</th></tr></thead>
       <tbody>${row("Violent crime", crime.violent)}${row("Property crime", crime.property)}</tbody></table></div>
     ${months < 12 ? `<p class="notice">The sheriff reported only ${months} of 12 months, so these numbers are low.</p>` : ""}
-    <p class="hint">Offenses the county sheriff reported to the FBI for the year. The sheriff covers the county outside city limits; towns report their own figures. Rates are per 100,000 people the sheriff serves (the Texas and US columns are for the whole state and country), and with a small rural population a few incidents change the rate a lot. It says nothing about a particular road or neighborhood, so ask neighbors and the sheriff's office too.</p>`;
+    ${noteHtml(`The sheriff's area only, not towns. With few people, a few incidents move the rate a lot.`, `Offenses the county sheriff reported to the FBI for the year. The sheriff covers the county outside city limits; towns report their own figures. Rates are per 100,000 people the sheriff serves (the Texas and US columns are for the whole state and country), and with a small rural population a few incidents change the rate a lot. It says nothing about a particular road or neighborhood, so ask neighbors and the sheriff's office too.`)}`;
 }
 
 // "More local conditions": drought, weather office and alerts, wind, nearby regulated facilities and disaster declarations.
@@ -660,7 +666,7 @@ function texasHtml(tx, p) {
       ${row("Pipelines within half a mile", "pipelines", () => pipeText)}
       ${row("Edwards Aquifer recharge zone", "edwards", () => (edwards && edwards.inRechargeZone ? "Yes" : "No"))}
     </div>
-    <p class="hint">These come from Texas state sources and only appear for parcels in Texas. They do not show who owns the minerals, easements, deed restrictions, or your county's septic (OSSF) rules, so check the deed, a title search and the county. Appraisal values are for tax, not sale price. The statewide data has no exemptions and no taxable value after exemptions, and farm and ranch land under ag or wildlife valuation is taxed on a much lower use value, so ask the appraisal district for the real taxable value. The owner's name and mailing address in the appraisal record are deliberately not shown.</p>`;
+    ${noteHtml(`Not shown: mineral rights, easements, deed restrictions or septic rules. Appraisal values are for tax, before any exemptions, not a sale price.`, `These come from Texas state sources and only appear for parcels in Texas. They do not show who owns the minerals, easements, deed restrictions, or your county's septic (OSSF) rules, so check the deed, a title search and the county. Appraisal values are for tax, not sale price. The statewide data has no exemptions and no taxable value after exemptions, and farm and ranch land under ag or wildlife valuation is taxed on a much lower use value, so ask the appraisal district for the real taxable value. The owner's name and mailing address in the appraisal record are deliberately not shown.`)}`;
 }
 
 function roadsHtml(roads) {
@@ -676,7 +682,7 @@ function roadsHtml(roads) {
         : roads.source === "osrm" ? `<span class="sub">not known: the map servers were busy, so only the backup nearest-road answer came back. Use Refresh data later.</span>` : noneWithin)}
     </div>
     ${roads.source === "tiger" ? `<p class="notice">The OpenStreetMap servers were busy, so these roads come from the Census Bureau's TIGER road map instead. It does not record surfaces, so only highways count as paved here, and a paved county road nearby may not show. Use Refresh all later for the OpenStreetMap details.</p>` : ""}
-    <p class="hint">${roads.source === "tiger" ? "From the US Census Bureau's TIGER roads." : "From OpenStreetMap."} This shows that a road exists near the point you picked, not that the parcel touches it or that you may use it. Many rural roads and driveways are private, and some roads are missing. Legal access (road frontage, an easement) shows up in the deed and the survey, so check those with the county and a title company.</p>`;
+    ${noteHtml(`Shows that a road is nearby, not that the land touches it or that you may use it. Check the deed and survey.`, `${roads.source === "tiger" ? "From the US Census Bureau's TIGER roads." : "From OpenStreetMap."} This shows that a road exists near the point you picked, not that the parcel touches it or that you may use it. Many rural roads and driveways are private, and some roads are missing. Legal access (road frontage, an easement) shows up in the deed and the survey, so check those with the county and a title company.`)}`;
 }
 
 function climateHtml(climate, solar) {
@@ -696,7 +702,7 @@ function climateHtml(climate, solar) {
       ${kv("Snow", `${climate.snowInchesPerYear} in a year`)}
       ${sun}
     </div>
-    <p class="hint">Worked out from ${climate.years} years of daily weather from Open-Meteo, a computer model of the atmosphere with a grid about 10 km wide, not a weather station at your lot. Low ground and hilltops can freeze two weeks earlier or later than the model says. "Full-sun hours" is sunlight energy on flat ground divided by a full-sun hour, and the solar output is a rough rule (80% of sun hours times 365 days) for a flat-lying panel. Real output depends on tilt, shade and equipment. For planting dates ask your county extension office.</p>`;
+    ${noteHtml(`From a computer weather model about 10 km wide, not a station at your lot. Low ground and hilltops can differ by two weeks.`, `Worked out from ${climate.years} years of daily weather from Open-Meteo, a computer model of the atmosphere with a grid about 10 km wide, not a weather station at your lot. Low ground and hilltops can freeze two weeks earlier or later than the model says. "Full-sun hours" is sunlight energy on flat ground divided by a full-sun hour, and the solar output is a rough rule (80% of sun hours times 365 days) for a flat-lying panel. Real output depends on tilt, shade and equipment. For planting dates ask your county extension office.`)}`;
 }
 
 function soilDetailsHtml(sd) {
@@ -720,7 +726,7 @@ function soilDetailsHtml(sd) {
       ${kv("Water runoff group", esc(sd.hydrologicGroup || "?"))}
       ${sd.interps ? kv("Home without basement", rating(sd.interps.dwellings)) + kv("Shallow excavations", rating(sd.interps.excavations)) + kv("Local roads", rating(sd.interps.roads)) + kv("Pond reservoir", rating(sd.interps.ponds)) + kv("Sewage lagoon", rating(sd.interps.lagoons)) : ""}
     </div>
-    <p class="hint">From the USDA soil survey, for the main soil type at this point. Soil changes over short distances, so a different part of the parcel can differ. The building ratings say how much the soil limits a use, not whether it can be done: "Very limited" often just means more engineering. A shrink-swell rating of High or Very high means foundations and driveways need extra care. This does not replace a soil test, a percolation test or a geotechnical report.</p>`;
+    ${noteHtml(`The main soil type at this point; it changes over short distances. This does not replace a soil or percolation test.`, `From the USDA soil survey, for the main soil type at this point. Soil changes over short distances, so a different part of the parcel can differ. The building ratings say how much the soil limits a use, not whether it can be done: "Very limited" often just means more engineering. A shrink-swell rating of High or Very high means foundations and driveways need extra care. This does not replace a soil test, a percolation test or a geotechnical report.`)}`;
 }
 
 function hazardsHtml(hazards) {
@@ -734,7 +740,7 @@ function hazardsHtml(hazards) {
       ${kv("Social vulnerability", esc(hazards.socialVulnerability || "?"))}
       ${kv("Community resilience", esc(hazards.resilience || "?"))}
     </div>` : ""}
-    <p class="hint">From FEMA's National Risk Index, which rates each census tract (a neighborhood-sized area, not your exact lot) against the rest of the United States. A rating combines how likely a hazard is, what it would damage, and how well the community can cope. It is not a forecast, and it does not replace the flood zone above, which is specific to the parcel. Read more at <a href="https://hazards.fema.gov/nri/" target="_blank" rel="noopener">hazards.fema.gov/nri</a>.</p>`;
+    ${noteHtml(`Rated by census tract, not your lot, against the rest of the US. It is not a forecast. <a href="https://hazards.fema.gov/nri/" target="_blank" rel="noopener">More from FEMA</a>.`, `From FEMA's National Risk Index, which rates each census tract (a neighborhood-sized area, not your exact lot) against the rest of the United States. A rating combines how likely a hazard is, what it would damage, and how well the community can cope. It is not a forecast, and it does not replace the flood zone above, which is specific to the parcel. Read more at hazards.fema.gov/nri.`)}`;
 }
 
 // Tells you how to get the county tax rate when the Census asked for a key.
@@ -777,7 +783,7 @@ function costHtml(parcel) {
       <div>${helpLabel("Water well")}</div><div>${money(est.oneTime.well)}</div>
       <div><strong>${helpLabel("One-time start-up")}</strong></div><div><strong>${money(est.oneTime.total)}</strong></div>
     </div>
-    <p class="hint">${esc(est.notes.join(" "))} These numbers come from the placeholder rates and prices in Settings, not from a quote. Property tax, insurance and building costs vary widely by state and county, and this leaves out the house, the driveway, electricity, and loan fees. Ask a lender, the county tax office and local contractors.</p>${taxKeyHint(parcel)}
+    ${noteHtml(`Placeholder rates from Settings, not a quote. Leaves out the house, driveway, electricity and loan fees.`, `${est.notes.join(" ")} These numbers come from the placeholder rates and prices in Settings, not from a quote. Property tax, insurance and building costs vary widely by state and county, and this leaves out the house, the driveway, electricity, and loan fees. Ask a lender, the county tax office and local contractors.`)}${taxKeyHint(parcel)}
     <h4>Monthly payment by loan type</h4>
     <div class="table-scroll"><table class="loan-table">
       <thead><tr><th></th><th class="num">Land loan (your terms)</th><th class="num">Conventional, 30 years</th><th class="num">FHA, 30 years</th></tr></thead>
@@ -785,8 +791,8 @@ function costHtml(parcel) {
         <tr class="total"><td><strong>About per month</strong></td><td class="num"><strong>${money(est.monthly.total)}</strong></td><td class="num"><strong>${money(conv.total)}</strong></td><td class="num"><strong>${money(fha.total)}</strong></td></tr>
       </tbody></table></div>
     ${homeNotes.length ? `<p class="hint">${esc(homeNotes.join(" "))}</p>` : ""}
-    <p class="hint"><strong>Read this first:</strong> banks do not make FHA or conventional loans on bare land. Those two columns show what the same price would cost as a home purchase, or as a construction-to-permanent loan that covers the land and the house. An FHA loan is only for a home you will live in. The land loan column uses your own terms from Settings. Rates, insurance and limits here are placeholders: the conventional rate is the Freddie Mac weekly average for a 30-year loan (7.32% on October 22, 2026) rounded, the FHA rate is a guess, and FHA's insurance is 1.75% at closing (added to the loan) plus ${c.fhaAnnualPct}% a year. A lender will quote real numbers for your credit and county.</p>
-    <p class="hint">USDA loan area: <strong>${usdaCell(parcel.site && parcel.site.usda)}</strong>. ${parcel.site && parcel.site.usda ? (parcel.site.usda.eligibleArea ? "This spot is outside USDA's mapped ineligible areas, so a USDA guaranteed home loan may be possible here. " : "This spot is inside a USDA ineligible area. ") : ""}USDA loans also have household income limits and are for buying a home, not bare land. Check the exact address on <a href="https://eligibility.sc.egov.usda.gov/eligibility/" target="_blank" rel="noopener">USDA's eligibility site</a> and ask a USDA-approved lender.</p>`;
+    ${noteHtml(`<strong>Read this first:</strong> banks do not make FHA or conventional loans on bare land. Those columns show the same price as a home or construction loan, at placeholder rates. Get a lender's quote.`, `Read this first: banks do not make FHA or conventional loans on bare land. Those two columns show what the same price would cost as a home purchase, or as a construction-to-permanent loan that covers the land and the house. An FHA loan is only for a home you will live in. The land loan column uses your own terms from Settings. Rates, insurance and limits here are placeholders: the conventional rate is the Freddie Mac weekly average for a 30-year loan (7.32% on October 22, 2026) rounded, the FHA rate is a guess, and FHA's insurance is 1.75% at closing (added to the loan) plus ${c.fhaAnnualPct}% a year. A lender will quote real numbers for your credit and county.`)}
+    ${noteHtml(`USDA loan area: <strong>${usdaCell(parcel.site && parcel.site.usda)}</strong>. Income limits apply, and it is for a home, not bare land. Check <a href="https://eligibility.sc.egov.usda.gov/eligibility/" target="_blank" rel="noopener">USDA's eligibility site</a>.`, `USDA loan area: ${usdaCell(parcel.site && parcel.site.usda)}. ${parcel.site && parcel.site.usda ? (parcel.site.usda.eligibleArea ? "This spot is outside USDA's mapped ineligible areas, so a USDA guaranteed home loan may be possible here. " : "This spot is inside a USDA ineligible area. ") : ""}USDA loans also have household income limits and are for buying a home, not bare land. Check the exact address on USDA's eligibility site and ask a USDA-approved lender.`)}`;
 }
 
 function openDetail(id) {
