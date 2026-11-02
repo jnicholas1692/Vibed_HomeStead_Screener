@@ -1,14 +1,33 @@
 # Homestead Land Screener
 
-Screen land parcels anywhere in the United States using free public data. Enter a street address or pick a spot on the map, and the app looks up flood risk, soil and septic suitability, slope, rainfall, internet service, natural hazard ratings, soil details, frost dates and solar hours, road access, wetlands, public land, groundwater, county tax rate, plant hardiness zone, the nearest airport, shops, schools and emergency services, then scores each parcel against criteria you set.
-
-It is a plain website: HTML, CSS and JavaScript with no build step and no server. Your parcels and criteria are saved in your own browser (localStorage). Nothing is uploaded to an account.
+**An exercise in directing AI to build a working project.** I set the goals and tested the results; an AI assistant (Claude) wrote the code. The result is a real tool I use to compare land.
 
 **Live site:** https://jnicholas1692.github.io/Vibed_HomeStead_Screener/
 
+## What it does
+
+It screens land parcels anywhere in the United States using free public data. Enter a street address or pick a spot on the map, and the app looks up flood risk, soil and septic suitability, slope, rainfall, internet service, natural hazard ratings, soil details, frost dates and solar hours, road access, wetlands, public land, groundwater, county tax rate, plant hardiness zone, the nearest airport, shops, schools and emergency services. It then scores each parcel against criteria you set, and you can compare parcels side by side and print a report.
+
+It is a plain website: HTML, CSS and JavaScript with no build step and no server. Your parcels and criteria are saved in your own browser (localStorage). Nothing is uploaded to an account.
+
 ## About this project
 
-This is a personal test of AI-assisted development. I am using it to see how far a working tool can get when an AI assistant (Claude) writes the code and I direct it, review it and test it. It is a learning project, not a finished product or professional advice.
+I started this to see how far a working tool can get when the person in charge directs the work instead of writing the code. The land search is real: I am looking for about 10 acres in central Texas, so the tool has to give answers I can use.
+
+How the work is divided:
+
+- **I direct:** I decide what to build and what matters, try each version on real listings, report what is wrong, and approve every release.
+- **The AI builds:** Claude writes the code, the tests and the documentation, checks that each public data service really answers from a browser, and reports what it could not verify.
+
+Much of the direction comes from using the tool. For example, a children's dentist showed up as the nearest pediatrician, addresses copied from listings would not load, and a printed comparison lost a column. Each of those became a fix, with tests so it stays fixed.
+
+The project's history is part of the exercise, and you can read it here:
+
+- [`SPEC.md`](SPEC.md) lists every numbered requirement and when it was added.
+- [`CLAUDE.md`](CLAUDE.md) is the brief the AI reads at the start of each session: the rules it must follow and what earlier sessions learned.
+- The [version history](#version-history) below and the commits show how it grew, one request at a time.
+
+It is a learning project, not a finished product or professional advice.
 
 - The data comes from free public sources and can be wrong, out of date or missing. Treat every result as a starting point and check it with the county, the surveyor, the lender and the agencies named in each report section before you rely on it.
 - Some of those free services are slow, busy or change without notice, so a lookup that fails today may work tomorrow.
