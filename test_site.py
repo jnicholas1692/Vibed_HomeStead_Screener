@@ -51,7 +51,7 @@ FAKE_CRIME_KEY = "CRIMEKEY0123456789"
 # Every outside host the app is allowed to talk to. A request to anything else fails a check.
 ALLOWED_HOSTS = {
     "unpkg.com", "tile.openstreetmap.org",
-    "geocoding.geo.census.gov", "photon.komoot.io", "hazards.fema.gov", "epqs.nationalmap.gov",
+    "geocoding.geo.census.gov", "photon.komoot.io", "nominatim.openstreetmap.org", "hazards.fema.gov", "epqs.nationalmap.gov",
     "sdmdataaccess.sc.egov.usda.gov", "archive-api.open-meteo.com", "geo.fcc.gov", "opendata.fcc.gov",
     "overpass-api.de", "overpass.openstreetmap.fr", "overpass.kumi.systems", "overpass.private.coffee",
     "router.project-osrm.org", "services.arcgis.com", "services5.arcgis.com", "phzmapi.org",
@@ -167,6 +167,13 @@ def fake_service(url, post_body, mode):
         matches = [] if "nowhere" in address.lower() else [
             {"coordinates": {"x": LON, "y": LAT}, "matchedAddress": "100 MAIN ST, BLANCO, TX, 78606"}]
         return jsonp_reply(url, {"result": {"addressMatches": matches}})
+    if host == "nominatim.openstreetmap.org":
+        query = parse_qs(urlparse(url).query)
+        if "postalcode" in query:   # the middle of a ZIP code
+            return json_reply([] if query["postalcode"][0] == "00000" else [{"lat": str(LAT), "lon": str(LON), "display_name": "78606, Texas"}])
+        if "ranch road 165" in query.get("q", [""])[0].lower():   # a street it knows, with no house number
+            return json_reply([{"lat": str(LAT), "lon": str(LON), "name": "Ranch Road 165", "address": {"road": "Ranch Road 165"}, "display_name": "Ranch Road 165, Blanco, Texas"}])
+        return json_reply([])
     if host == "photon.komoot.io":
         return json_reply({"features": [{
             "geometry": {"coordinates": [LON, LAT]},
@@ -791,8 +798,24 @@ def test_add_errors(b):
     page.click("#btn-save")
     page.wait_for_function("() => document.getElementById('add-error').textContent.includes('No match')")
     check("an address with no match says so", "No match for that address" in page.text_content("#add-error"))
+    page.fill("#f-address", "TBD Unknown Rd, Blanco, TX 78606")
+    page.click("#btn-save")
+    page.wait_for_function("() => document.getElementById('add-error').textContent.includes('not found near')")
+    check("a street not found adds nothing and offers the map near its ZIP", "78606" in page.text_content("#add-error") and page.locator("#list tr.row").count() == 0)
+    page.click("#btn-pick")
+    check("the map then opens at that ZIP for picking", page.evaluate("() => map === null || map.getZoom() === 13"))
+    page.keyboard.press("Escape")
     close_dialog(page, "dlg-add")
     check("nothing was added by the mistakes", "No addresses yet" in page.text_content("#list"))
+    # A street with no house number is added, and the report says the spot is only on that street.
+    page.click("#btn-add")
+    page.fill("#f-address", "TBD Ranch Road 165, Blanco, TX 78606")
+    page.fill("#f-name", "Approximate test")
+    page.click("#btn-save")
+    page.wait_for_selector("#dlg-detail[open]")
+    check("a spot found only by its street says it is approximate", "Approximate location" in page.text_content("#detail"))
+    page.wait_for_function("() => !lookingId")
+    page.evaluate("() => { document.getElementById('dlg-detail').close(); clearParcels(); renderAll(); }")
 
 
 def test_address_suggestions(b):
