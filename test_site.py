@@ -912,7 +912,16 @@ def test_full_report(b):
     check("a jump puts the section just under the pinned buttons", 0 <= gap <= 20, str(gap))
     page.emulate_media(media="print")
     check("the jump buttons are not printed", not page.is_visible("#detail .jump-bar"))
+    check("the section Source lines are not printed, since the list at the end names them", not page.locator("#detail .rsection .source").first.is_visible())
+    check("the More links are not printed", not page.locator("#detail .hint .help").first.is_visible())
     page.emulate_media(media="screen")
+    # Notes stay short, with the full explanation on More.
+    long_notes = page.evaluate("""() => [...document.querySelectorAll('#detail .rsection .hint')]
+        .map((h) => h.textContent.trim()).filter((t) => t.length > 240)""")
+    check("every report note is short", long_notes == [], str(long_notes)[:300])
+    check("every More has the full explanation", page.evaluate("""() => {
+        const more = [...document.querySelectorAll('#detail .hint .help')];
+        return more.length > 5 && more.every((m) => m.dataset.tip.length > 40 && !/&(amp|lt|gt);/.test(m.dataset.tip)); }"""))
     page.click("[data-groups=open]")
     check("Expand all opens every category", page.evaluate("() => [...document.querySelectorAll('details.rgroup')].every((d) => d.open)"))
 
@@ -996,6 +1005,14 @@ def test_demo_list_compare(b):
     check("the compare table starts with your criteria in your order",
           labels[2:8] == ["Septic suitability", "Airport distance", "Price", "Internet", "Slope", "Rainfall"], str(labels[:8]))
     check("a ticked criterion's usual row is not repeated", "Asking price" not in labels and "Internet (best non-satellite)" not in labels)
+    # Printing: at a page's width, nothing in the table runs past the edge or past its own column.
+    page.set_viewport_size({"width": 720, "height": 900})
+    page.emulate_media(media="print")
+    fits = page.evaluate("""() => { const t = document.querySelector('#compare table');
+        return t.scrollWidth <= t.parentElement.clientWidth && [...t.querySelectorAll('th, td')].every((c) => c.scrollWidth <= c.clientWidth + 1); }""")
+    check("the printed comparison fits the page, with every column whole", fits)
+    page.emulate_media(media="screen")
+    page.set_viewport_size({"width": 1280, "height": 900})
     close_dialog(page, "dlg-compare")
     boxes.nth(0).uncheck()
     boxes.nth(1).uncheck()

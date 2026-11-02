@@ -186,6 +186,7 @@
   .print-only { display: none; }
   .notes-print { white-space: pre-wrap; }
   #summary-text { width: 100%; font: inherit; }
+  @page { margin: 0.45in; }
   @media print {
     body > *:not(dialog) { display: none !important; }
     dialog:not([open]) { display: none; }
@@ -194,10 +195,27 @@
     .dlg-body { overflow: visible; }
     .no-print, .dlg-foot, [data-close] { display: none !important; }
     .print-only { display: block; }
-    h2, h3, table { break-inside: avoid; }
+    h2, h3, tr { break-inside: avoid; }
+    h3 { break-after: avoid; }
     * { color: #000 !important; background: transparent !important; }
     .score, .badge { border: 1px solid #000; }
     body { font-size: 10pt; }
+    /* A report takes fewer pages: the list at the end names every source, label and value pairs sit side by side, and the list runs in two columns. */
+    .source { display: none; }
+    .hint { font-size: 8.5pt; }
+    .kv { grid-template-columns: 19% 31% 19% 31%; }
+    .kv > div { padding-block: 2px; padding-right: 8px; }
+    .sources { columns: 2; column-gap: 16px; font-size: 7.5pt; padding-left: 0.9rem; }
+    .sources li { margin: 1px 0; break-inside: avoid; }
+    .rgroup-body { padding: 0 0 6px; gap: 4px; }
+    .rgroup > summary { padding: 4px 0; }
+    h3 { margin: 6px 0 2px; }
+    /* The comparison fits the page width: equal columns, and long words wrap instead of being cut off. */
+    .table-scroll { overflow: visible; }
+    .compare-table { table-layout: fixed; width: 100%; font-size: 8.5pt; }
+    .compare-table th, .compare-table td, .compare-table th:first-child, .compare-table td:first-child { min-width: 0; white-space: normal; overflow-wrap: anywhere; padding-inline: 4px; }
+    .compare-table thead { display: table-header-group; }   /* the addresses repeat at the top of each page */
+    #compare .source { display: block; font-size: 7.5pt; }
     .dlg-body { gap: 8px; padding: 4px 0; }
     th, td { padding-block: 3px; }
     .kv > div { padding-block: 3px; }

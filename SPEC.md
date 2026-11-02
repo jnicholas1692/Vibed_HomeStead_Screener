@@ -2,7 +2,7 @@
 
 > DRAFT SKELETON. Rewrite every section in your own words before publishing.
 > Items marked **[YOUR CALL]** are decisions only you can state.
-> Last updated for v2.12.0.
+> Last updated for v2.13.0.
 
 ## 1. Problem
 
@@ -119,6 +119,8 @@ Buying rural land means checking the same things for every listing: flood risk, 
 | R82 | Jump to a report section | Under the report's buttons (pinned at the top), a row of buttons names each section shown, in report order, plus Data sources and Your notes, each with a hover explanation; a click scrolls the section to just under the pinned buttons and opens its category if it was closed; the row is not printed; under 900 pixels wide it is one line that scrolls sideways inside itself, never widening the page | `feature/report-jump-and-crime` |
 | R83 | Crime failures explained | When the crime figures fail, the Crime section says why in plain words with the error (key's hourly limit for HTTP 429, a problem on the FBI's side for 5xx, too slow, or no answer); the year before is also tried when the FBI's service does not answer at all (time-out or a blocked error page), not only on a 5xx error; 4xx errors are not retried | `feature/report-jump-and-crime` |
 | R84 | Addresses from listings | Pasted text is tidied (odd spaces, line breaks, a site's name, USA); TBD, 0, Lot, Tract and Block are not house numbers, and unit numbers are dropped. A Census answer is used only when its house number and street are the ones asked; two spellings of a road count as the same (FM, RM, CR, PR, Hwy). Otherwise Nominatim is asked (at most one request a second, only on pressing Add) for a road result of that name within 15 miles of the ZIP or town. With the house number it is exact; with only the street, the report shows an Approximate location notice until the spot is moved. If the street is not found nothing is added and the map opens at the ZIP or town for picking. If every service fails the form says so | `fix/address-lookup` |
+| R85 | Short report notes | The note under each report section is a short line (the main limit of the data), with the full explanation on a More label (hover or tap) that is not printed; a test keeps notes to 240 characters | `fix/print-compare-and-report` |
+| R86 | Printing | A printed comparison fits the page width: equal columns, headers and long words wrap, and the addresses repeat on each page. A printed report leaves out the per-section Source lines (the list at the end names every source), sets label and value pairs side by side, lists sources in two columns, and lets long tables break between rows | `fix/print-compare-and-report` |
 
 ## 5. Scoring rules
 
@@ -192,7 +194,7 @@ Static site: HTML, CSS and vanilla JavaScript, Leaflet for the map, localStorage
 ## 10. Testing
 
 - 211 unit tests under Node (`npm test`) cover scoring, parsing, routing fallbacks, comparison, cost, summary and the source table.
-- 277 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
+- 282 browser checks (`python test_site.py`, needs Playwright and Chromium) run the real page with every outside service faked; see R53. They are not run in GitHub Actions.
 - Live checks against real services are manual (see the tutorial).
 
 ## 11. What I would do next
